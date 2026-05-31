@@ -3,11 +3,20 @@
 //
 // This is where the server's headline hardening lives end to end. The names in
 // a pCloud listing are attacker-controlled — a shared folder may legitimately
-// be named ".." — so every local path is built through internal/safepath, which
-// rejects traversal tokens and separators before a single byte is written.
-// Unlike the reference Python implementation, no remote name is ever
-// URL-decoded into a path component, and the local filename always comes from
-// the listing's literal name field, never from a CDN link path.
+// be named ".." — so the download is contained in two independent layers:
+//
+//  1. internal/safepath validates every remote name lexically (no traversal
+//     tokens, separators, NUL, or reserved names) before it is used, and aborts
+//     the whole download on the first bad name. This gives clear errors and
+//     fails closed.
+//  2. all file and directory I/O goes through an *os.Root scoped to the base
+//     directory, so the operating system itself refuses any path that resolves
+//     outside base — including via a symlink planted between validation and
+//     write (a TOCTOU race that lexical validation alone cannot close).
+//
+// No remote name is ever URL-decoded into a path component, and the local
+// filename always comes from the listing's literal name field, never from a CDN
+// link path.
 package download
 
 import (
@@ -27,7 +36,7 @@ type Stats struct {
 }
 
 // Downloader writes into base. base is cleaned once at construction; every
-// individual write is re-checked against it by safepath, so nothing the API
+// individual write goes through an *os.Root scoped to it, so nothing the API
 // returns can move a write outside this directory.
 type Downloader struct {
 	client *pcloud.Client
@@ -39,10 +48,34 @@ func New(client *pcloud.Client, base string) *Downloader {
 	return &Downloader{client: client, base: filepath.Clean(base)}
 }
 
+// openRoot ensures the base directory exists and returns an *os.Root scoped to
+// it. Every subsequent file and directory operation is performed through this
+// root, so the kernel enforces containment regardless of what names the remote
+// listing contains.
+func (d *Downloader) openRoot() (*os.Root, error) {
+	if err := os.MkdirAll(d.base, 0o750); err != nil {
+		return nil, fmt.Errorf("create base %s: %w", d.base, err)
+	}
+	root, err := os.OpenRoot(d.base)
+	if err != nil {
+		return nil, fmt.Errorf("open base %s: %w", d.base, err)
+	}
+	return root, nil
+}
+
 // File downloads a single file (described by meta) into the base directory,
 // using its literal name as the local filename.
 func (d *Downloader) File(ctx context.Context, meta *pcloud.Metadata) (Stats, error) {
-	n, err := d.downloadFile(ctx, meta, []string{meta.Name})
+	if _, err := safepath.SafeName(meta.Name); err != nil {
+		return Stats{}, err
+	}
+	root, err := d.openRoot()
+	if err != nil {
+		return Stats{}, err
+	}
+	defer root.Close()
+
+	n, err := d.downloadFile(ctx, root, meta, meta.Name)
 	if err != nil {
 		return Stats{}, err
 	}
@@ -54,35 +87,40 @@ func (d *Downloader) File(ctx context.Context, meta *pcloud.Metadata) (Stats, er
 // unsafe name aborts the whole download rather than skipping the item, so a
 // malicious tree can never partially land on disk.
 func (d *Downloader) Folder(ctx context.Context, root *pcloud.Metadata) (Stats, error) {
+	osRoot, err := d.openRoot()
+	if err != nil {
+		return Stats{}, err
+	}
+	defer osRoot.Close()
+
 	var s Stats
-	if err := d.walk(ctx, root, nil, &s); err != nil {
+	if err := d.walk(ctx, osRoot, root, "", &s); err != nil {
 		return s, err
 	}
 	return s, nil
 }
 
-func (d *Downloader) walk(ctx context.Context, node *pcloud.Metadata, rel []string, s *Stats) error {
+func (d *Downloader) walk(ctx context.Context, root *os.Root, node *pcloud.Metadata, rel string, s *Stats) error {
 	for i := range node.Contents {
 		child := node.Contents[i]
-		// Validate the name before it is ever used as a path component.
+		// Lexical gate: validate the name before it is ever used as a path
+		// component. os.Root enforces containment a second time at the syscall.
 		if _, err := safepath.SafeName(child.Name); err != nil {
 			return fmt.Errorf("download aborted at %q: %w", child.Name, err)
 		}
-		childRel := append(append([]string(nil), rel...), child.Name)
+		childRel := filepath.Join(rel, child.Name)
 
 		if child.IsFolder {
-			dir, err := safepath.Join(d.base, childRel...)
-			if err != nil {
-				return err
+			// Parent dirs are always created before their children by this
+			// top-down walk, so a single-level Mkdir is sufficient.
+			if err := root.Mkdir(childRel, 0o750); err != nil && !os.IsExist(err) {
+				return fmt.Errorf("create dir %s: %w", childRel, err)
 			}
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				return fmt.Errorf("create %s: %w", dir, err)
-			}
-			if err := d.walk(ctx, &child, childRel, s); err != nil {
+			if err := d.walk(ctx, root, &child, childRel, s); err != nil {
 				return err
 			}
 		} else {
-			n, err := d.downloadFile(ctx, &child, childRel)
+			n, err := d.downloadFile(ctx, root, &child, childRel)
 			if err != nil {
 				return err
 			}
@@ -93,34 +131,28 @@ func (d *Downloader) walk(ctx context.Context, node *pcloud.Metadata, rel []stri
 	return nil
 }
 
-// downloadFile resolves a direct link for meta and streams it to base/rel,
-// validating the full path first. A partial file is removed if the transfer
-// fails, so a failed download never leaves truncated data behind.
-func (d *Downloader) downloadFile(ctx context.Context, meta *pcloud.Metadata, rel []string) (int64, error) {
-	dest, err := safepath.Join(d.base, rel...)
-	if err != nil {
-		return 0, err
-	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return 0, fmt.Errorf("create %s: %w", filepath.Dir(dest), err)
-	}
+// downloadFile resolves a direct link for meta and streams it to root/rel. The
+// file is created through the root, so rel cannot escape base. A partial file is
+// removed if the transfer fails, so a failed download never leaves truncated
+// data behind.
+func (d *Downloader) downloadFile(ctx context.Context, root *os.Root, meta *pcloud.Metadata, rel string) (int64, error) {
 	link, err := d.client.GetFileLink(ctx, meta.FileID, true)
 	if err != nil {
 		return 0, err
 	}
-	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	f, err := root.OpenFile(rel, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
-		return 0, fmt.Errorf("open %s: %w", dest, err)
+		return 0, fmt.Errorf("open %s: %w", rel, err)
 	}
 	n, err := d.client.Download(ctx, link, f)
 	closeErr := f.Close()
 	if err != nil {
-		os.Remove(dest) // drop the partial file
+		_ = root.Remove(rel) // drop the partial file
 		return 0, err
 	}
 	if closeErr != nil {
-		os.Remove(dest)
-		return 0, fmt.Errorf("close %s: %w", dest, closeErr)
+		_ = root.Remove(rel)
+		return 0, fmt.Errorf("close %s: %w", rel, closeErr)
 	}
 	return n, nil
 }

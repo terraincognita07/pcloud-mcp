@@ -15,9 +15,12 @@ First release. A hardened, ground-up Go reimplementation of an MCP server for pC
   `govulncheck`/`staticcheck`/`gosec`.
 
 ### Security
-- **Path traversal closed.** All local writes are contained to the chosen directory via
-  `internal/safepath`; remote names are validated after decoding and the joined path re-checked.
-  Reproduces and blocks the `..`-named-shared-folder attack present in the Python reference server.
+- **Path traversal closed (two layers).** Remote names are validated by `internal/safepath` after
+  decoding (fails closed), and all file I/O runs through an `os.Root` scoped to the destination so the
+  kernel refuses any escape, including a symlink planted mid-download (TOCTOU). Reproduces and blocks
+  the `..`-named-shared-folder attack present in the Python reference server.
+- **Clean static analysis.** `gosec`, `staticcheck`, and `go vet` run clean; CI pins all tool versions
+  and gates on `gofmt`, `go test -race`, and a non-root `docker build`.
 - **Token handling.** Access token sent in POST body (not URL query), stored `0600` via atomic write,
   never printed; redacted in `String()`.
 - **OAuth.** Loopback bind (`127.0.0.1`), constant-time 256-bit `state` (CSRF), callback race/DoS

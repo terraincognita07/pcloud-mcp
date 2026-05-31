@@ -19,7 +19,7 @@ the pCloud API are attacker-influenced** — a folder shared with the victim may
 
 | Area | Guarantee | Attack closed |
 |------|-----------|---------------|
-| Path containment | Every local write goes through `internal/safepath`; remote names are validated (no `..`, separators, NUL, reserved names) **after** decoding, and the joined path is re-checked to be inside the base. Fails closed. | Path traversal via a shared folder named `..` → arbitrary file overwrite (`~/.ssh/authorized_keys`, `~/.bashrc`). |
+| Path containment | Two independent layers: `internal/safepath` validates every remote name (no `..`, separators, NUL, reserved names) **after** decoding and fails closed, and all file I/O runs through an `os.Root` scoped to the destination so the **kernel** refuses any escape — including a symlink planted mid-download (TOCTOU). | Path traversal via a shared folder named `..` → arbitrary file overwrite (`~/.ssh/authorized_keys`, `~/.bashrc`). |
 | Token in transit | Access token sent in the POST body, never the URL query. | Token leakage into server/proxy access logs and browser history. |
 | Token at rest | Credentials file is `0600`, written atomically (temp + rename). | Local disclosure / half-written file races. |
 | Token in output | Token never printed to stdout; redacted in `String()` methods. | Leakage via terminal scrollback, screenshots, shell history. |

@@ -52,16 +52,27 @@ type Config struct {
 	Timeout      time.Duration // 0 → DefaultTimeout
 }
 
+// launch is the single, audited point where this package shells out. The
+// program name is a fixed constant and the only variable argument is a URL this
+// package constructed itself (buildAuthorizeURL: our client id, a fixed loopback
+// redirect, and a random state). It is passed as a separate argv element, never
+// through a shell, so there is no command-injection surface.
+func launch(name string, args ...string) error {
+	// #nosec G204 -- fixed program name; the only variable arg is a
+	// self-constructed URL passed as argv (not via a shell).
+	return exec.Command(name, args...).Start()
+}
+
 // openBrowser is a variable so tests can stub it; opening a browser is always
 // best-effort, since the URL is also printed for the user to open manually.
 var openBrowser = func(u string) error {
 	switch runtime.GOOS {
 	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", u).Start()
+		return launch("rundll32", "url.dll,FileProtocolHandler", u)
 	case "darwin":
-		return exec.Command("open", u).Start()
+		return launch("open", u)
 	default:
-		return exec.Command("xdg-open", u).Start()
+		return launch("xdg-open", u)
 	}
 }
 
@@ -96,8 +107,11 @@ func Run(ctx context.Context, cfg Config) (*config.Credentials, error) {
 	resultCh := make(chan callbackResult, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", callbackHandler(state, resultCh))
-	srv := &http.Server{Handler: mux}
-	go srv.Serve(ln) //nolint:errcheck // Serve always returns a non-nil error on close
+	// ReadHeaderTimeout bounds how long a client may take to send request
+	// headers, closing the Slowloris hold-open vector even on this short-lived
+	// loopback listener.
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = srv.Serve(ln) }() // Serve always returns a non-nil error on close
 	defer srv.Close()
 
 	fmt.Fprintln(os.Stderr, "Open this URL in your browser to authorize pCloud access:")
@@ -188,7 +202,7 @@ func callbackHandler(wantState string, ch chan<- callbackResult) http.HandlerFun
 		}
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		io.WriteString(w, successHTML)
+		_, _ = io.WriteString(w, successHTML)
 		trySend(ch, callbackResult{code: code, locationID: locationID, hostname: q.Get("hostname")})
 	}
 }

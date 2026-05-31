@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # --- build stage ---
-FROM golang:1.26.3 AS build
+# Floating 1.26 tag: always present and ≥1.26.3, carrying current stdlib fixes.
+FROM golang:1.26 AS build
 WORKDIR /src
 
 # Cache modules first.

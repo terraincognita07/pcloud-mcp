@@ -47,6 +47,8 @@ func Save(path string, c *Credentials) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
+	// #nosec G117 -- persisting the OAuth token to an owner-only file is the
+	// entire purpose of this function; that is why it is written 0600 below.
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode credentials: %w", err)
@@ -63,11 +65,11 @@ func Save(path string, c *Credentials) error {
 	defer os.Remove(tmpName) // no-op after a successful rename
 
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("chmod temp file: %w", err)
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("write temp file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
@@ -81,6 +83,8 @@ func Save(path string, c *Credentials) error {
 
 // Load reads and validates credentials from path.
 func Load(path string) (*Credentials, error) {
+	// #nosec G304 -- reads the application's own credentials file; the path is
+	// derived from os.UserConfigDir, not from any remote or untrusted input.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read credentials: %w", err)

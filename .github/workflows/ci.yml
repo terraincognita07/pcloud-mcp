@@ -18,7 +18,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.3'
-          check-latest: true
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"; echo "$unformatted"; exit 1
+          fi
       - run: go build ./...
       - run: go vet ./...
       - run: go test -race -count=1 ./...
@@ -31,13 +36,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.3'
-          check-latest: true
+      # Pinned tool versions for deterministic runs; bump deliberately.
       - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - name: staticcheck
-        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
       - name: gosec
-        run: go run github.com/securego/gosec/v2/cmd/gosec@latest -exclude-generated ./...
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.26.1 -exclude-generated ./...
 
   docker:
     name: docker build (non-root)
