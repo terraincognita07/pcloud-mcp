@@ -1,0 +1,26 @@
+# Compiled binary
+/pcloud-mcp
+/pcloud-mcp.exe
+*.exe
+
+# Local OAuth credentials — must never be committed
+credentials.json
+
+# Scratch / debug artifacts
+*.tmp
+*_out.txt
+result_*.txt
+
+# Go test/build leftovers
+*.test
+*.out
+
+# Go workspace files — local-only, must not ship in a published module
+go.work
+go.work.sum
+
+# Agent / AI tooling — kept locally, never published to this repo
+.claude/
+AGENTS.md
+AI_CONTEXT.md
+CLAUDE.md

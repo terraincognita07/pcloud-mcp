@@ -1,0 +1,10 @@
+.git
+.github
+*.exe
+*_out.txt
+result_*.txt
+*.test
+credentials.json
+README.md
+*.md
+!go.mod
