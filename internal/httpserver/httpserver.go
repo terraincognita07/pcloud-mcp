@@ -35,6 +35,12 @@ const ReadHeaderTimeout = 10 * time.Second
 // shutdownGrace bounds graceful shutdown after the context is cancelled.
 const shutdownGrace = 5 * time.Second
 
+// MinTokenLength is the shortest bearer token Serve accepts. This is a guard
+// against a misconfigured, trivially brute-forceable secret (the docs tell
+// operators to use `openssl rand -hex 32`, i.e. 64 chars); it is not a strength
+// estimator, just a floor so a 1-char token can't be served to the internet.
+const MinTokenLength = 16
+
 // BearerAuth wraps next so that only requests carrying "Authorization: Bearer
 // <token>" are passed through; everything else gets 401. The comparison is
 // constant time. token must be non-empty (callers should validate before use;
@@ -68,6 +74,9 @@ func bearerToken(header string) string {
 func Serve(ctx context.Context, addr, token string, handler http.Handler, logger *slog.Logger) error {
 	if strings.TrimSpace(token) == "" {
 		return errors.New("httpserver: refusing to start without a bearer token")
+	}
+	if len(token) < MinTokenLength {
+		return fmt.Errorf("httpserver: bearer token too short (%d chars); use at least %d, e.g. `openssl rand -hex 32`", len(token), MinTokenLength)
 	}
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(noopWriter{}, nil))

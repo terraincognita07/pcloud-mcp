@@ -64,6 +64,41 @@ func benignServer(t *testing.T) *httptest.Server {
 	}))
 }
 
+// TestFile_PartialDownloadCleanedUp is the regression test for the "a failed
+// download never leaves truncated data behind" invariant. The fake CDN promises
+// more bytes via Content-Length than it actually sends, then closes — the client
+// sees an unexpected EOF mid-copy, and the partial file must be removed.
+func TestFile_PartialDownloadCleanedUp(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getfilelink"):
+			io.WriteString(w, `{"result":0,"hosts":["cdn.example"],"path":"/dl/x"}`)
+		case strings.HasPrefix(r.URL.Path, "/dl/"):
+			// Claim 100 bytes, send 3, then hijack-close so io.Copy fails.
+			w.Header().Set("Content-Length", "100")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("aaa"))
+			if hj, ok := w.(http.Hijacker); ok {
+				conn, _, _ := hj.Hijack()
+				_ = conn.Close()
+			}
+		}
+	}))
+	defer srv.Close()
+
+	base := t.TempDir()
+	d := New(testClient(t, srv), base)
+
+	_, err := d.File(context.Background(), &pcloud.Metadata{Name: "broken.bin", FileID: 1, Size: 100})
+	if err == nil {
+		t.Fatal("expected an error from a truncated download")
+	}
+	// The partial file must NOT exist.
+	if _, statErr := os.Stat(filepath.Join(base, "broken.bin")); !os.IsNotExist(statErr) {
+		t.Errorf("partial file was left behind (stat err: %v); it must be removed", statErr)
+	}
+}
+
 func TestFolder_DownloadsTree(t *testing.T) {
 	srv := benignServer(t)
 	defer srv.Close()

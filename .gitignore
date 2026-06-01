@@ -23,6 +23,6 @@ go.work.sum
 
 # Agent / AI tooling — kept locally, never published to this repo
 .claude/
-AGENTS.md
 AI_CONTEXT.md
 CLAUDE.md
+AGENTS.md

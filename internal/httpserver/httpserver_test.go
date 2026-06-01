@@ -83,12 +83,27 @@ func TestServe_RefusesWhitespaceToken(t *testing.T) {
 	}
 }
 
+// TestServe_RefusesShortToken guards the MinTokenLength floor: a too-short
+// (trivially brute-forceable) secret must not be served to the network.
+func TestServe_RefusesShortToken(t *testing.T) {
+	short := "abc123"
+	if len(short) >= MinTokenLength {
+		t.Fatalf("test token unexpectedly long enough: %d", len(short))
+	}
+	if err := Serve(context.Background(), "127.0.0.1:0", short, okHandler, nil); err == nil {
+		t.Error("Serve must refuse a token shorter than MinTokenLength")
+	}
+}
+
+// validToken meets MinTokenLength for tests that need Serve to actually start.
+const validToken = "0123456789abcdef0123" // 20 chars
+
 // TestServe_StartsAndStops binds an ephemeral port, confirms it shuts down
 // cleanly when the context is cancelled, and that Serve returns without error.
 func TestServe_StartsAndStops(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, "127.0.0.1:0", "tok", okHandler, nil) }()
+	go func() { done <- Serve(ctx, "127.0.0.1:0", validToken, okHandler, nil) }()
 
 	// Give it a moment to bind, then cancel.
 	time.Sleep(50 * time.Millisecond)
