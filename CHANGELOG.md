@@ -9,6 +9,16 @@ All notable changes to this project are documented here. Format loosely follows
 - `pcloud_save_text` — write text content straight into a new pCloud file, no local file needed.
 - `pcloud_create_upload_link` — create a public, anonymous upload link to collect files into a folder
   (e.g. from a phone or another person). The `save_text` file name is validated through `safepath`.
+- **HTTP transport** (`serve --http :addr`) for remote access from Claude.ai web/phone, alongside the
+  existing stdio mode. Bearer-token authenticated (constant-time compare, fails closed without a token,
+  `ReadHeaderTimeout` set). HTTP mode hides the local-filesystem tools (`download_*`, `upload_file`),
+  which would otherwise write to the server's disk.
+- `docker-compose.yml` (loopback bind, read-only, non-root, caps dropped) and
+  [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md) with nginx / Caddy / Traefik reverse-proxy examples.
+
+### Security
+- New `internal/httpserver` package isolates the network boundary: bearer auth, loopback bind, graceful
+  shutdown. See SECURITY.md → "HTTP (remote) mode".
 
 ## [0.1.0] — 2026-06-01
 

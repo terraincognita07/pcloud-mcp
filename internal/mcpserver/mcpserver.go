@@ -37,31 +37,53 @@ func New(client *pcloud.Client) *Server {
 // boolPtr is a helper for the *bool annotation fields.
 func boolPtr(b bool) *bool { return &b }
 
-// Register adds every pCloud tool to m.
-func (s *Server) Register(m *mcp.Server) {
+// Mode selects which tools are exposed.
+type Mode int
+
+const (
+	// ModeLocal exposes every tool, including the ones that read and write the
+	// local filesystem (download_*, upload_file). It is for the stdio transport,
+	// where the server runs on the user's own machine.
+	ModeLocal Mode = iota
+	// ModeRemote hides the local-filesystem tools. Over the HTTP transport the
+	// server runs on a host (a VPS), so download_*/upload_file would touch the
+	// server's disk, not the user's — exposing them would be confusing and would
+	// let a request write to the server. Cloud-side tools stay available.
+	ModeRemote
+)
+
+// Register adds the local-mode tool set (all tools) to m. It is kept for the
+// stdio entrypoint and for tests.
+func (s *Server) Register(m *mcp.Server) { s.RegisterMode(m, ModeLocal) }
+
+// RegisterMode adds the pCloud tools appropriate for mode. Local-filesystem
+// tools are only registered in ModeLocal.
+func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_list_folder",
 		Description: "List the immediate contents of a pCloud folder. Use folder_id 0 for the account root. Returns each child's name, id, and whether it is a folder.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
 	}, s.ListFolder)
 
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_download_file",
-		Description: "Download a single pCloud file to a local directory. Provide file_id and the file's name (both from pcloud_list_folder) and a local destination directory. The name is validated to prevent path traversal.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
-	}, s.DownloadFile)
+	if mode == ModeLocal {
+		mcp.AddTool(m, &mcp.Tool{
+			Name:        "pcloud_download_file",
+			Description: "Download a single pCloud file to a local directory. Provide file_id and the file's name (both from pcloud_list_folder) and a local destination directory. The name is validated to prevent path traversal.",
+			Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+		}, s.DownloadFile)
 
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_download_folder",
-		Description: "Download a pCloud folder and its entire subtree to a local directory, mirroring the structure under destination/<name>. Every remote name is validated to prevent path traversal; the download aborts if any name is unsafe.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
-	}, s.DownloadFolder)
+		mcp.AddTool(m, &mcp.Tool{
+			Name:        "pcloud_download_folder",
+			Description: "Download a pCloud folder and its entire subtree to a local directory, mirroring the structure under destination/<name>. Every remote name is validated to prevent path traversal; the download aborts if any name is unsafe.",
+			Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+		}, s.DownloadFolder)
 
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_upload_file",
-		Description: "Upload a local file into a pCloud folder. Use folder_id 0 for the account root. By default the local file name is kept; set name to store under a different name.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
-	}, s.UploadFile)
+		mcp.AddTool(m, &mcp.Tool{
+			Name:        "pcloud_upload_file",
+			Description: "Upload a local file into a pCloud folder. Use folder_id 0 for the account root. By default the local file name is kept; set name to store under a different name.",
+			Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+		}, s.UploadFile)
+	}
 
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_create_folder",

@@ -26,5 +26,13 @@ COPY --from=build /out/pcloud-mcp /usr/local/bin/pcloud-mcp
 # Already nonroot via the base image; declare it explicitly for clarity.
 USER nonroot:nonroot
 
+# HTTP transport port (only meaningful for `serve --http`). Documentation only.
+EXPOSE 8080
+
+# Containers are the remote scenario, so default to authenticated HTTP. This
+# requires PCLOUD_MCP_TOKEN in the environment and credentials mounted at
+# $XDG_CONFIG_HOME/pcloud-mcp/credentials.json (created once via `pcloud-mcp auth`
+# on a machine with a browser, then copied in). For the local stdio scenario,
+# override the command with: `serve`.
 ENTRYPOINT ["pcloud-mcp"]
-CMD ["serve"]
+CMD ["serve", "--http", ":8080"]

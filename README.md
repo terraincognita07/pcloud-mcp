@@ -125,6 +125,23 @@ For Claude Desktop (`claude_desktop_config.json`):
 
 That's it — `serve` reads the saved credentials and speaks MCP over stdio.
 
+## Remote access (Claude.ai web / phone)
+
+`serve --http :8080` runs an **authenticated HTTP** server so Claude.ai in a
+browser or on your phone can reach your pCloud from anywhere. It requires a
+bearer token and a reverse proxy for HTTPS, and it **hides the local-filesystem
+tools** (download/upload would write to the server's disk, not yours). Cloud-side
+tools — browse, organize, **share link**, **save text**, **upload link** — stay
+available.
+
+```sh
+export PCLOUD_MCP_TOKEN=$(openssl rand -hex 32)
+pcloud-mcp serve --http :8080      # bind behind a TLS reverse proxy
+```
+
+Full deployment (docker-compose + nginx / Caddy / Traefik + connecting Claude.ai)
+is in [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
+
 ## Tools
 
 | Tool | Kind | Description |

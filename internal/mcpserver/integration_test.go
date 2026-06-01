@@ -19,6 +19,10 @@ import (
 // session. This exercises the whole stack — schema generation, transport,
 // dispatch, typed argument unmarshaling — exactly as a host like Claude would.
 func connect(t *testing.T, apiHandler http.HandlerFunc) *mcp.ClientSession {
+	return connectMode(t, apiHandler, ModeLocal)
+}
+
+func connectMode(t *testing.T, apiHandler http.HandlerFunc, mode Mode) *mcp.ClientSession {
 	t.Helper()
 
 	api := httptest.NewServer(apiHandler)
@@ -28,7 +32,7 @@ func connect(t *testing.T, apiHandler http.HandlerFunc) *mcp.ClientSession {
 	client := pcloud.New("tok", pcloud.RegionUS, pcloud.WithHTTPClient(hc))
 
 	srv := mcp.NewServer(&mcp.Implementation{Name: "pcloud", Version: "test"}, nil)
-	New(client).Register(srv)
+	New(client).RegisterMode(srv, mode)
 
 	serverT, clientT := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(context.Background(), serverT, nil); err != nil {
@@ -68,6 +72,32 @@ func TestIntegration_AllToolsRegistered(t *testing.T) {
 	for _, name := range want {
 		if !got[name] {
 			t.Errorf("tool %q not advertised", name)
+		}
+	}
+}
+
+// TestIntegration_RemoteModeHidesLocalDiskTools verifies that the HTTP/remote
+// tool set omits the three tools that read or write the server's local disk,
+// while keeping the cloud-side tools. Exposing download_*/upload_file on a
+// hosted server would touch the server's filesystem, not the user's.
+func TestIntegration_RemoteModeHidesLocalDiskTools(t *testing.T) {
+	cs := connectMode(t, func(w http.ResponseWriter, r *http.Request) {}, ModeRemote)
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	got := map[string]bool{}
+	for _, tool := range res.Tools {
+		got[tool.Name] = true
+	}
+	for _, hidden := range []string{"pcloud_download_file", "pcloud_download_folder", "pcloud_upload_file"} {
+		if got[hidden] {
+			t.Errorf("remote mode must NOT expose local-disk tool %q", hidden)
+		}
+	}
+	for _, present := range []string{"pcloud_list_folder", "pcloud_share_file", "pcloud_save_text", "pcloud_create_upload_link", "pcloud_delete_file"} {
+		if !got[present] {
+			t.Errorf("remote mode must still expose cloud tool %q", present)
 		}
 	}
 }

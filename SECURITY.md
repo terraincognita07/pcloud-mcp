@@ -50,6 +50,28 @@ can reason about them:
   be large. Run with a destination on a volume you can afford, or review the listing first via
   `pcloud_list_folder`.
 
+## HTTP (remote) mode
+
+`serve --http` exposes the server to the network, so it adds attack surface that
+stdio does not. Controls:
+
+- **Bearer token required.** Every request must carry `Authorization: Bearer
+  <PCLOUD_MCP_TOKEN>`; it is compared in constant time, missing/wrong returns
+  `401`, and the server **refuses to start without a token** (fails closed). Use
+  a long random secret (`openssl rand -hex 32`).
+- **Loopback bind + TLS proxy.** The container binds `127.0.0.1` only; HTTPS is
+  terminated by a reverse proxy. The port is never exposed to `0.0.0.0`.
+- **Reduced tool set.** Local-filesystem tools (`download_*`, `upload_file`) are
+  hidden in HTTP mode so a remote request cannot read or write the server's disk.
+- **`ReadHeaderTimeout`** is set, closing the Slowloris hold-open vector.
+
+Known limitations: the bearer token is a single shared secret (rotate by changing
+the env var and restarting; revoke pCloud access from your account's app
+settings). Do not place a human-login gateway (Authelia/OAuth2-Proxy) in front of
+the MCP route — Claude cannot complete a login form, and the bearer token is the
+access control. OAuth 2.1 (multi-user) can be layered on later without changing
+the tools.
+
 ## Auditing it yourself
 
 The minimum gate, also enforced in CI (alongside `staticcheck` and `gosec`):
