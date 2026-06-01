@@ -174,6 +174,50 @@ func TestFolder_BlocksTraversalEndToEnd(t *testing.T) {
 	}
 }
 
+// TestOSRoot_KernelBlocksEscape proves the SECOND, independent barrier in
+// isolation. TestFolder_BlocksTraversalEndToEnd exercises the lexical guard
+// (safepath rejects ".." before any I/O). Here we bypass that guard entirely and
+// hand a "../" path straight to the os.Root the downloader writes through — the
+// kernel itself must refuse it. This is the defense-in-depth that survives even
+// if the lexical layer is ever weakened, and it closes the symlink-TOCTOU gap a
+// purely lexical check cannot.
+func TestOSRoot_KernelBlocksEscape(t *testing.T) {
+	parent := t.TempDir()
+	base := filepath.Join(parent, "scoped")
+	if err := os.MkdirAll(base, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+
+	// Every one of these tries to climb out of `base`. os.Root must reject each,
+	// and the escape target in the parent must never be created.
+	escapes := []string{
+		"../escaped.txt",
+		"../../escaped.txt",
+		"sub/../../escaped.txt",
+	}
+	for _, p := range escapes {
+		if _, err := root.OpenFile(p, os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			t.Errorf("os.Root let %q escape the base — kernel containment failed", p)
+		}
+	}
+	// The parent dir must still hold only `scoped`; nothing leaked out.
+	if _, statErr := os.Stat(filepath.Join(parent, "escaped.txt")); !os.IsNotExist(statErr) {
+		t.Error("a file escaped the os.Root into the parent directory")
+	}
+
+	// Sanity: a legitimate in-bounds path still works through the same root.
+	f, err := root.OpenFile("inside.txt", os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("os.Root rejected a legitimate in-bounds path: %v", err)
+	}
+	_ = f.Close()
+}
+
 func TestFile_Single(t *testing.T) {
 	srv := benignServer(t)
 	defer srv.Close()
