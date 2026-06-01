@@ -30,8 +30,8 @@ filesystem access cannot be walked out of bounds.
 
 ## Features
 
-- **10 tools** — list folder; download file/folder; upload file; create folder; move/rename
-  file/folder; delete file/folder; share link. Host config below.
+- **12 tools** — list folder; download file/folder; upload file; save text to a file; create folder;
+  move/rename file/folder; delete file/folder; share link; create upload link. Host config below.
 - **Path-traversal–proof downloads** — pCloud folder names are attacker-influenced (a shared folder
   may be named `..`), so every remote name is validated *and* every write goes through an `os.Root`
   scoped to your destination. The kernel refuses any escape, even via a symlink planted mid-download.
@@ -136,7 +136,9 @@ That's it — `serve` reads the saved credentials and speaks MCP over stdio.
 | `pcloud_create_folder` | additive | Create a folder. |
 | `pcloud_move_file` | additive | Rename and/or move a file. |
 | `pcloud_move_folder` | additive | Rename and/or move a folder. |
-| `pcloud_share_file` | additive | Create a public share link. |
+| `pcloud_share_file` | additive | Create a public share link to a file (download from anywhere, incl. phone). |
+| `pcloud_save_text` | additive | Write text straight into a new pCloud file — no local file needed. |
+| `pcloud_create_upload_link` | additive | Public upload link: collect files into a folder from a phone/another person. |
 | `pcloud_delete_file` | **destructive** | Permanently delete a file. |
 | `pcloud_delete_folder` | **destructive** | Permanently delete a folder and all its contents. |
 

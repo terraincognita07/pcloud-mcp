@@ -422,6 +422,32 @@ func (c *Client) GetFilePubLink(ctx context.Context, fileID int64) (string, erro
 	return out.Link, nil
 }
 
+// CreateUploadLink creates a public, anonymous upload link that lets anyone
+// with the URL upload files into folderID. comment is shown to the uploader and
+// is required by pCloud. This is an outward-facing capability — it opens a
+// write path into the account that needs no authentication — so the MCP layer
+// tags the tool accordingly and the caller should confirm intent.
+//
+// pCloud returns a ready-to-share https URL in the link field; it is returned
+// verbatim.
+func (c *Client) CreateUploadLink(ctx context.Context, folderID int64, comment string) (string, error) {
+	params := url.Values{}
+	params.Set("folderid", strconv.FormatInt(folderID, 10))
+	params.Set("comment", comment)
+	var out struct {
+		envelope
+		Link string `json:"link"`
+		Code string `json:"code"`
+	}
+	if err := c.call(ctx, "createuploadlink", params, &out); err != nil {
+		return "", err
+	}
+	if out.Link == "" {
+		return "", fmt.Errorf("pcloud createuploadlink: empty link in response")
+	}
+	return out.Link, nil
+}
+
 // OAuthToken is the result of exchanging an authorization code for an access
 // token.
 type OAuthToken struct {

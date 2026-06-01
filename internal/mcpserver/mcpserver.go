@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -97,6 +98,18 @@ func (s *Server) Register(m *mcp.Server) {
 		Description: "Create a public share link for a pCloud file. Anyone with the link can access the file, so confirm intent before sharing.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
 	}, s.ShareFile)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_save_text",
+		Description: "Save text content directly into a new pCloud file (e.g. a note, summary, or generated document) without needing a local file. Provide folder_id (0 = root), a file name, and the text content.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.SaveText)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_create_upload_link",
+		Description: "Create a public upload link for a pCloud folder. ANYONE with the returned URL can upload files into that folder without signing in — useful for collecting files from a phone or another person. Confirm intent before creating; it opens an unauthenticated write path into the account.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.CreateUploadLink)
 }
 
 // --- Shared output shapes ---
@@ -338,6 +351,46 @@ type ShareResult struct {
 
 func (s *Server) ShareFile(ctx context.Context, _ *mcp.CallToolRequest, in ShareFileInput) (*mcp.CallToolResult, ShareResult, error) {
 	link, err := s.client.GetFilePubLink(ctx, in.FileID)
+	if err != nil {
+		return nil, ShareResult{}, err
+	}
+	return nil, ShareResult{Link: link}, nil
+}
+
+// --- save_text ---
+
+type SaveTextInput struct {
+	FolderID int64  `json:"folder_id" jsonschema:"destination pCloud folder id; use 0 for the account root"`
+	Name     string `json:"name" jsonschema:"file name to create, e.g. note.md"`
+	Content  string `json:"content" jsonschema:"the text content to write into the file"`
+}
+
+func (s *Server) SaveText(ctx context.Context, _ *mcp.CallToolRequest, in SaveTextInput) (*mcp.CallToolResult, UploadResult, error) {
+	// The name becomes a pCloud filename; validate it as a single safe component
+	// so it cannot smuggle a path ("../x") or separator into the upload.
+	if _, err := safepath.SafeName(in.Name); err != nil {
+		return nil, UploadResult{}, err
+	}
+	md, err := s.client.UploadFile(ctx, in.FolderID, in.Name, strings.NewReader(in.Content))
+	if err != nil {
+		return nil, UploadResult{}, err
+	}
+	return nil, UploadResult{FileID: md.FileID, Name: md.Name, Size: md.Size}, nil
+}
+
+// --- create_upload_link ---
+
+type CreateUploadLinkInput struct {
+	FolderID int64  `json:"folder_id" jsonschema:"pCloud folder id that uploads will land in; use 0 for the account root"`
+	Comment  string `json:"comment,omitempty" jsonschema:"optional note shown to whoever opens the upload page"`
+}
+
+func (s *Server) CreateUploadLink(ctx context.Context, _ *mcp.CallToolRequest, in CreateUploadLinkInput) (*mcp.CallToolResult, ShareResult, error) {
+	comment := in.Comment
+	if comment == "" {
+		comment = "Upload files here" // pCloud requires a non-empty comment
+	}
+	link, err := s.client.CreateUploadLink(ctx, in.FolderID, comment)
 	if err != nil {
 		return nil, ShareResult{}, err
 	}

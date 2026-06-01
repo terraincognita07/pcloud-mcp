@@ -178,6 +178,65 @@ func TestShareFile(t *testing.T) {
 	}
 }
 
+func TestSaveText(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		f, hdr, err := r.FormFile("file")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if hdr.Filename != "note.md" {
+			t.Errorf("filename = %q", hdr.Filename)
+		}
+		body, _ := io.ReadAll(f)
+		if string(body) != "hello world" {
+			t.Errorf("content = %q", body)
+		}
+		io.WriteString(w, `{"result":0,"metadata":[{"name":"note.md","fileid":42,"size":11}]}`)
+	})
+	_, out, err := s.SaveText(context.Background(), nil, SaveTextInput{FolderID: 0, Name: "note.md", Content: "hello world"})
+	if err != nil {
+		t.Fatalf("SaveText: %v", err)
+	}
+	if out.FileID != 42 {
+		t.Errorf("result = %+v", out)
+	}
+}
+
+// TestSaveText_RejectsUnsafeName is the security check: a file name that tries to
+// traverse must be refused before any API call.
+func TestSaveText_RejectsUnsafeName(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("must not call API for an unsafe name: %s", r.URL.Path)
+	})
+	if _, _, err := s.SaveText(context.Background(), nil, SaveTextInput{Name: "../evil", Content: "x"}); err == nil {
+		t.Error("expected rejection of traversal name in save_text")
+	}
+}
+
+func TestCreateUploadLink(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if r.PostForm.Get("folderid") != "3" {
+			t.Errorf("folderid = %q", r.PostForm.Get("folderid"))
+		}
+		if r.PostForm.Get("comment") == "" {
+			t.Error("comment must be non-empty (pCloud requires it)")
+		}
+		io.WriteString(w, `{"result":0,"uploadlinkid":9,"code":"Z","link":"https://my.pcloud.com/#page=puplink&code=Z"}`)
+	})
+	_, out, err := s.CreateUploadLink(context.Background(), nil, CreateUploadLinkInput{FolderID: 3})
+	if err != nil {
+		t.Fatalf("CreateUploadLink: %v", err)
+	}
+	if !strings.Contains(out.Link, "puplink") {
+		t.Errorf("link = %q", out.Link)
+	}
+}
+
 func TestAPIErrorPropagates(t *testing.T) {
 	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"result":2005,"error":"Directory does not exist."}`)

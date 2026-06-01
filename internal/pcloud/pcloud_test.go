@@ -250,6 +250,35 @@ func TestGetFilePubLink(t *testing.T) {
 	}
 }
 
+func TestCreateUploadLink(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if r.PostForm.Get("folderid") != "12" {
+			t.Errorf("folderid = %q; want 12", r.PostForm.Get("folderid"))
+		}
+		if r.PostForm.Get("comment") != "drop files here" {
+			t.Errorf("comment = %q", r.PostForm.Get("comment"))
+		}
+		io.WriteString(w, `{"result":0,"uploadlinkid":7,"code":"ABC","link":"https://my.pcloud.com/#page=puplink&code=ABC"}`)
+	})
+	link, err := c.CreateUploadLink(context.Background(), 12, "drop files here")
+	if err != nil {
+		t.Fatalf("CreateUploadLink: %v", err)
+	}
+	if !strings.Contains(link, "puplink") {
+		t.Errorf("link = %q", link)
+	}
+}
+
+func TestCreateUploadLinkEmptyLinkErrors(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"result":0,"link":""}`)
+	})
+	if _, err := c.CreateUploadLink(context.Background(), 1, "x"); err == nil {
+		t.Error("expected error on empty link")
+	}
+}
+
 func TestExchangeOAuthCode(t *testing.T) {
 	var sawSecretInURL bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

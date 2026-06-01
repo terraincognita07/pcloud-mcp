@@ -60,7 +60,7 @@ func TestIntegration_AllToolsRegistered(t *testing.T) {
 		"pcloud_list_folder", "pcloud_download_file", "pcloud_download_folder",
 		"pcloud_upload_file", "pcloud_create_folder", "pcloud_delete_file",
 		"pcloud_delete_folder", "pcloud_move_file", "pcloud_move_folder",
-		"pcloud_share_file",
+		"pcloud_share_file", "pcloud_save_text", "pcloud_create_upload_link",
 	}
 	if len(res.Tools) != len(want) {
 		t.Errorf("tool count = %d; want %d", len(res.Tools), len(want))

@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `pcloud_save_text` — write text content straight into a new pCloud file, no local file needed.
+- `pcloud_create_upload_link` — create a public, anonymous upload link to collect files into a folder
+  (e.g. from a phone or another person). The `save_text` file name is validated through `safepath`.
+
 ## [0.1.0] — 2026-06-01
 
 First release. A hardened, ground-up Go reimplementation of an MCP server for pCloud.

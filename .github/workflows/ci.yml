@@ -30,10 +30,11 @@ jobs:
         run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
+        continue-on-error: true   # a Codecov outage/rate-limit must never red the build
         with:
           files: ./coverage.out
           slug: terraincognita07/pcloud-mcp
-          fail_ci_if_error: false  # a Codecov hiccup must never red the build
+          fail_ci_if_error: false
 
   security:
     name: govulncheck · staticcheck · gosec
