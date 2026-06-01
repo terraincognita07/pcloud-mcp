@@ -26,7 +26,14 @@ jobs:
           fi
       - run: go build ./...
       - run: go vet ./...
-      - run: go test -race -count=1 ./...
+      - name: test (race + coverage)
+        run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.out
+          slug: terraincognita07/pcloud-mcp
+          fail_ci_if_error: false  # a Codecov hiccup must never red the build
 
   security:
     name: govulncheck · staticcheck · gosec

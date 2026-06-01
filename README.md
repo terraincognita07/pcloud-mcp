@@ -3,6 +3,7 @@
 A hardened [Model Context Protocol](https://modelcontextprotocol.io) server for [pCloud](https://www.pcloud.com), written in Go.
 
 [![CI](https://github.com/terraincognita07/pcloud-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/terraincognita07/pcloud-mcp/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/terraincognita07/pcloud-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/terraincognita07/pcloud-mcp)
 [![Go Report Card](https://goreportcard.com/badge/github.com/terraincognita07/pcloud-mcp)](https://goreportcard.com/report/github.com/terraincognita07/pcloud-mcp)
 [![Go Reference](https://pkg.go.dev/badge/github.com/terraincognita07/pcloud-mcp.svg)](https://pkg.go.dev/github.com/terraincognita07/pcloud-mcp)
 [![Release](https://img.shields.io/github/v/release/terraincognita07/pcloud-mcp?display_name=tag)](https://github.com/terraincognita07/pcloud-mcp/releases)

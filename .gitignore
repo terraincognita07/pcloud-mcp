@@ -14,6 +14,8 @@ result_*.txt
 # Go test/build leftovers
 *.test
 *.out
+coverage.out
+coverage.html
 
 # Go workspace files — local-only, must not ship in a published module
 go.work

@@ -64,3 +64,21 @@ func TestStringRedactsToken(t *testing.T) {
 		t.Errorf("String leaked token: %s", c.String())
 	}
 }
+
+func TestDefaultPath(t *testing.T) {
+	path, err := DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	if path == "" {
+		t.Fatal("DefaultPath returned empty path")
+	}
+	// Must end with our app dir + file, regardless of OS config root.
+	want := filepath.Join("pcloud-mcp", "credentials.json")
+	if !strings.HasSuffix(path, want) {
+		t.Errorf("DefaultPath = %q; want suffix %q", path, want)
+	}
+	if !filepath.IsAbs(path) {
+		t.Errorf("DefaultPath = %q; want an absolute path", path)
+	}
+}
