@@ -107,6 +107,14 @@ docker build -t pcloud-mcp .
 Register an app at <https://docs.pcloud.com/my_apps/> and set its redirect URI to
 `http://127.0.0.1:53682/callback`. Note the **client id** and **client secret**.
 
+> [!NOTE]
+> pCloud has currently paused self-service registration of **new** OAuth apps. If the
+> "create application" option is unavailable, that's a pCloud-side restriction, not a
+> limitation of pcloud-mcp. Already-registered apps keep working — reuse credentials
+> from an app you created earlier, or ask pCloud support to provision one (redirect URI
+> `http://127.0.0.1:53682/callback`). The server is OAuth-only by design and needs a
+> client id / client secret to start; there is no password fallback.
+
 ### 2. Authorize once
 
 Credentials are saved to your user config dir with `0600` permissions; the token is never printed.
