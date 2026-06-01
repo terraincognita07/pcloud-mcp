@@ -13,8 +13,8 @@ A hardened [Model Context Protocol](https://modelcontextprotocol.io) server for 
 
 Give [Claude](https://claude.ai) (or any MCP host) access to your [pCloud](https://www.pcloud.com)
 account — list, download, upload, organize, and share files in plain language. A single static binary
-with no runtime dependencies, built so that an agent holding both a full-access cloud token and local
-filesystem access cannot be walked out of bounds.
+with no runtime dependencies, designed so that an agent holding both a full-access cloud token and
+local filesystem access stays safely within the bounds you set.
 
 ```
    Claude (MCP host)
@@ -28,10 +28,26 @@ filesystem access cannot be walked out of bounds.
    your local disk — writes cannot escape the chosen directory
 ```
 
+## What you can do
+
+Once it's connected, you talk to your pCloud in plain language. For example:
+
+- *"What's in my pCloud root? Open the Photos folder."* — browse and search your files.
+- *"Download the Invoices folder to ~/Documents."* — pull a file or a whole tree to your machine (local mode).
+- *"Upload report.pdf to my Work folder."* — push a local file up (local mode).
+- *"Save this summary as notes.md in my Journal folder."* — write text Claude generated straight into a file, no local copy needed.
+- *"Make a new folder 2026, move last year's files into it, rename the old one to Archive."* — organize without the web UI.
+- *"Give me a link to share invoice.pdf."* — get a public download link (works from your phone too).
+- *"Create an upload link for my Inbox folder."* — let someone (or your phone) drop files in without an account.
+- *"Delete the temp folder."* — remove files/folders (your host asks you to confirm — these are flagged destructive).
+
+It works two ways: **locally** through Claude Desktop (files land on your computer), or as a **remote server** so Claude.ai on the web or your phone can reach your pCloud from anywhere — see [Remote access](#remote-access-claudeai-web--phone).
+
 ## Features
 
-- **12 tools** — list folder; download file/folder; upload file; save text to a file; create folder;
-  move/rename file/folder; delete file/folder; share link; create upload link. Host config below.
+- **12 tools** covering the full account: browse, download, upload, save text, create/move/rename/delete
+  folders and files, public share links, and public upload links — see [What you can do](#what-you-can-do)
+  above and the [Tools](#tools) table below.
 - **Path-traversal–proof downloads** — pCloud folder names are attacker-influenced (a shared folder
   may be named `..`), so every remote name is validated *and* every write goes through an `os.Root`
   scoped to your destination. The kernel refuses any escape, even via a symlink planted mid-download.
@@ -44,13 +60,16 @@ filesystem access cannot be walked out of bounds.
 
 ## Why this exists
 
-An MCP server for cloud storage is unusually sensitive: the host LLM is handed both a full-access cloud
-token and local filesystem access, and **file/folder names returned by the pCloud API are
-attacker-influenced** — a folder shared with the user can legitimately be named `..`. Treat that name
-as trusted and a download can be walked out of its directory. So this server treats untrusted remote
-metadata as a first-class threat from the ground up: every remote name is validated before it is used,
-and every write is contained by the OS kernel. The full hardening table and the specific attack each
-control closes are in [SECURITY.md](SECURITY.md).
+A cloud-storage MCP server sits in an unusually sensitive spot: the host LLM holds a full-access cloud
+token **and** can write to your local disk, and the file/folder names it acts on come from the cloud,
+not from you — so they are untrusted input. A folder shared with you can legitimately be named `..`.
+That makes "validate everything that comes back from the API, and contain every write" a design
+requirement, not a nice-to-have.
+
+This server is built around that from the ground up: every remote name is validated before it is used,
+and every write is contained by the OS kernel, so a name can never move a write outside the directory
+you chose. The full hardening table — each control and the class of attack it closes — is in
+[SECURITY.md](SECURITY.md).
 
 ### Design priorities
 
