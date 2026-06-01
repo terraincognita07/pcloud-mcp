@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] — 2026-06-01
 
 ### Added
 - `pcloud_save_text` — write text content straight into a new pCloud file, no local file needed.
@@ -45,4 +45,5 @@ First release. A hardened, ground-up Go reimplementation of an MCP server for pC
 - **Download URL.** `getfilelink` host/path validated to prevent upstream `host@evil` URL confusion.
 - **Supply chain.** Build toolchain pinned to a release with current stdlib fixes; `govulncheck` clean.
 
+[0.2.0]: https://github.com/terraincognita07/pcloud-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/terraincognita07/pcloud-mcp/releases/tag/v0.1.0

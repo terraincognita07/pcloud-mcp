@@ -36,7 +36,7 @@ import (
 	"github.com/terraincognita07/pcloud-mcp/internal/pcloud"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
 	cmd := "serve"

@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # Go module dependencies (the MCP SDK and its transitive deps).
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      # One PR per week for routine bumps instead of many.
+      go-dependencies:
+        patterns:
+          - "*"
+
+  # GitHub Actions used in the CI workflow (checkout, setup-go, codecov).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns:
+          - "*"
