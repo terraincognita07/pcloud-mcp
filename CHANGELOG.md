@@ -34,8 +34,8 @@ First release. A hardened, ground-up Go reimplementation of an MCP server for pC
 ### Security
 - **Path traversal closed (two layers).** Remote names are validated by `internal/safepath` after
   decoding (fails closed), and all file I/O runs through an `os.Root` scoped to the destination so the
-  kernel refuses any escape, including a symlink planted mid-download (TOCTOU). Reproduces and blocks
-  the `..`-named-shared-folder attack present in the Python reference server.
+  kernel refuses any escape, including a symlink planted mid-download (TOCTOU). A folder shared with the
+  user named `..` cannot walk a download out of its directory.
 - **Clean static analysis.** `gosec`, `staticcheck`, and `go vet` run clean; CI pins all tool versions
   and gates on `gofmt`, `go test -race`, and a non-root `docker build`.
 - **Token handling.** Access token sent in POST body (not URL query), stored `0600` via atomic write,

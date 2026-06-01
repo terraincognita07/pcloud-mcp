@@ -44,24 +44,22 @@ filesystem access cannot be walked out of bounds.
 
 ## Why this exists
 
-This is a ground-up Go reimplementation built after a line-by-line audit of the existing Python
-`pcloud-mcp-server` turned up a **critical path-traversal vulnerability**, plus OAuth and
-token-handling weaknesses.
-
 An MCP server for cloud storage is unusually sensitive: the host LLM is handed both a full-access cloud
 token and local filesystem access, and **file/folder names returned by the pCloud API are
-attacker-influenced** — a folder shared with the victim can legitimately be named `..`. A naive client
-walks that name straight onto the local path and overwrites arbitrary files
-(`~/.ssh/authorized_keys`, `~/.bashrc`, cron entries). Here, untrusted remote metadata is treated as a
-first-class threat. The full hardening table and the specific attack each control closes are in
-[SECURITY.md](SECURITY.md).
+attacker-influenced** — a folder shared with the user can legitimately be named `..`. Treat that name
+as trusted and a download can be walked out of its directory. So this server treats untrusted remote
+metadata as a first-class threat from the ground up: every remote name is validated before it is used,
+and every write is contained by the OS kernel. The full hardening table and the specific attack each
+control closes are in [SECURITY.md](SECURITY.md).
 
-### How it differs from the existing server
+### Design priorities
 
-| | Language | Path containment | Auth | Distribution |
-|---|---|---|---|---|
-| [`abiheiri/pcloud-mcp-server`](https://github.com/abiheiri/pcloud-mcp-server) | Python | None — vulnerable to `..` traversal | password-in-URL or OAuth | `uv` / Python env |
-| **`pcloud-mcp`** | **Go** | **`safepath` + `os.Root`, fails closed** | **OAuth only** | **single static binary / distroless image** |
+| | This server |
+|---|---|
+| **Path containment** | `internal/safepath` validation + `os.Root` kernel-level scoping; fails closed |
+| **Auth** | OAuth 2.0 only — token in the POST body, never a URL |
+| **Transport** | stdio (local) and bearer-authenticated HTTP (remote) |
+| **Distribution** | single static binary / non-root distroless image |
 
 ## Quick start
 

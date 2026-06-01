@@ -9,11 +9,10 @@ personal open-source project — but credit is given in the advisory unless you 
 
 ## Why this exists
 
-This project is a ground-up Go reimplementation motivated by concrete weaknesses in the existing
-Python `pcloud-mcp-server`. An MCP server for cloud storage is unusually sensitive: the host LLM is
-handed both a full-access cloud token and local filesystem access, and **file/folder names returned by
-the pCloud API are attacker-influenced** — a folder shared with the victim may legitimately be named
-`..`. The hardening below is the point of the project, not an afterthought.
+An MCP server for cloud storage is unusually sensitive: the host LLM is handed both a full-access cloud
+token and local filesystem access, and **file/folder names returned by the pCloud API are
+attacker-influenced** — a folder shared with the user may legitimately be named `..`. The hardening
+below is the point of the project, not an afterthought.
 
 ## Hardening (with the attack each closes)
 
@@ -29,7 +28,7 @@ the pCloud API are attacker-influenced** — a folder shared with the victim may
 | OAuth robustness | Malformed `locationid` falls back to US instead of crashing the handler. | Handler crash on a non-numeric `locationid`. |
 | Download URL | `getfilelink` host+path validated structurally and the assembled URL's host re-checked. | Compromised/MITM upstream redirecting a download via `host@evil.com` URL confusion. |
 | Destructive ops | `delete_file` / `delete_folder` carry MCP `DestructiveHint`; recursion is explicit. | Silent destructive calls the host can't warn about. |
-| Auth model | OAuth only — no username/password flow. | The reference server sent the password in a URL query. |
+| Auth model | OAuth only — no username/password flow. | A password sent as a URL query parameter leaks into logs and history. |
 | Supply chain | Build toolchain pinned to a release with current stdlib fixes; `govulncheck` is clean and gated in CI. | Known reachable stdlib CVEs. |
 
 Each row has a regression test that reproduces the original attack (see `*_test.go`).
