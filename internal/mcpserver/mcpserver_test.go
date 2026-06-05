@@ -260,25 +260,6 @@ func TestCopyFolder(t *testing.T) {
 	}
 }
 
-func TestListLinks(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"result":0,"publinks":[
-			{"linkid":55,"link":"https://e.pcloud.link/x","downloads":4,"metadata":{"name":"shared.pdf","fileid":9,"isfolder":false}}
-		]}`)
-	})
-	_, out, err := s.ListLinks(context.Background(), nil, ListLinksInput{})
-	if err != nil {
-		t.Fatalf("ListLinks: %v", err)
-	}
-	if out.Total != 1 || len(out.Links) != 1 {
-		t.Fatalf("links = %+v", out)
-	}
-	l := out.Links[0]
-	if l.LinkID != 55 || l.Name != "shared.pdf" || l.FileID != 9 || l.Downloads != 4 {
-		t.Errorf("link info = %+v", l)
-	}
-}
-
 func TestDeleteLink(t *testing.T) {
 	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/deletepublink") {
@@ -295,53 +276,6 @@ func TestDeleteLink(t *testing.T) {
 	}
 }
 
-func TestListTrash(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/trash_list") {
-			t.Errorf("endpoint = %s", r.URL.Path)
-		}
-		io.WriteString(w, `{"result":0,"metadata":{"name":"Trash","folderid":0,"isfolder":true,"contents":[
-			{"name":"a","isfolder":false,"fileid":1,"origparentfolderid":12},
-			{"name":"b","isfolder":false,"fileid":2}
-		]}}`)
-	})
-	_, out, err := s.ListTrash(context.Background(), nil, ListTrashInput{FolderID: 0, Limit: 1})
-	if err != nil {
-		t.Fatalf("ListTrash: %v", err)
-	}
-	if out.Total != 2 || len(out.Entries) != 1 || out.Entries[0].OrigParentFolderID != 12 {
-		t.Fatalf("trash page = %+v", out)
-	}
-	if !out.HasMore || out.NextOffset != 1 {
-		t.Errorf("expected has_more next=1, got %v %d", out.HasMore, out.NextOffset)
-	}
-}
-
-func TestRestoreFromTrash(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/trash_restore") {
-			t.Errorf("endpoint = %s", r.URL.Path)
-		}
-		io.WriteString(w, `{"result":0,"metadata":{"name":"a","fileid":1,"size":3,"isfolder":false}}`)
-	})
-	_, out, err := s.RestoreFromTrash(context.Background(), nil, RestoreFromTrashInput{FileID: 1})
-	if err != nil {
-		t.Fatalf("RestoreFromTrash: %v", err)
-	}
-	if out.ID != 1 || out.IsFolder || out.Name != "a" {
-		t.Errorf("restored entry = %+v", out)
-	}
-}
-
-func TestRestoreFromTrash_RequiresID(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		t.Error("must not call API without file_id or folder_id")
-	})
-	if _, _, err := s.RestoreFromTrash(context.Background(), nil, RestoreFromTrashInput{}); err == nil {
-		t.Error("expected error when neither file_id nor folder_id is set")
-	}
-}
-
 func TestShareFolder(t *testing.T) {
 	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/getfolderpublink") {
@@ -355,149 +289,6 @@ func TestShareFolder(t *testing.T) {
 	}
 	if !strings.Contains(out.Link, "pcloud.link") || out.LinkID != 9 {
 		t.Errorf("share folder result = %+v", out)
-	}
-}
-
-func TestListUploadLinks(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"result":0,"uploadlinks":[
-			{"uploadlinkid":4,"link":"https://e.pcloud.link/U","comment":"drop","files":2,"metadata":{"name":"Inbox","folderid":3,"isfolder":true}}
-		]}`)
-	})
-	_, out, err := s.ListUploadLinks(context.Background(), nil, ListUploadLinksInput{})
-	if err != nil {
-		t.Fatalf("ListUploadLinks: %v", err)
-	}
-	if out.Total != 1 || len(out.Links) != 1 {
-		t.Fatalf("links = %+v", out)
-	}
-	l := out.Links[0]
-	if l.UploadLinkID != 4 || l.FolderName != "Inbox" || l.FolderID != 3 || l.Files != 2 {
-		t.Errorf("upload link info = %+v", l)
-	}
-}
-
-func TestDeleteUploadLink(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/deleteuploadlink") {
-			t.Errorf("endpoint = %s", r.URL.Path)
-		}
-		io.WriteString(w, `{"result":0}`)
-	})
-	_, out, err := s.DeleteUploadLink(context.Background(), nil, DeleteUploadLinkInput{UploadLinkID: 4})
-	if err != nil {
-		t.Fatalf("DeleteUploadLink: %v", err)
-	}
-	if !out.Deleted {
-		t.Error("expected Deleted=true")
-	}
-}
-
-func TestShareFolderWithUser(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		_ = r.ParseForm()
-		if !strings.HasSuffix(r.URL.Path, "/sharefolder") || r.PostForm.Get("permissions") != "6" || r.PostForm.Get("mail") != "x@y.z" {
-			t.Errorf("endpoint/params wrong: %s %v", r.URL.Path, r.PostForm)
-		}
-		io.WriteString(w, `{"result":0}`)
-	})
-	_, out, err := s.ShareFolderWithUser(context.Background(), nil, ShareFolderWithUserInput{FolderID: 5, Email: "x@y.z", CanModify: true, CanDelete: true})
-	if err != nil {
-		t.Fatalf("ShareFolderWithUser: %v", err)
-	}
-	if !out.OK {
-		t.Error("expected OK=true")
-	}
-}
-
-func TestShareFolderWithUser_RequiresEmail(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		t.Error("must not call API without an email")
-	})
-	if _, _, err := s.ShareFolderWithUser(context.Background(), nil, ShareFolderWithUserInput{FolderID: 5}); err == nil {
-		t.Error("expected error when email is missing")
-	}
-}
-
-func TestListShares(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"result":0,"shares":{"outgoing":[
-			{"shareid":7,"folderid":5,"sharename":"Docs","tomail":"x@y.z","canread":true,"canmodify":true}
-		],"incoming":[]},"requests":{"incoming":[],"outgoing":[]}}`)
-	})
-	_, out, err := s.ListShares(context.Background(), nil, ListSharesInput{})
-	if err != nil {
-		t.Fatalf("ListShares: %v", err)
-	}
-	if len(out.OutgoingShares) != 1 {
-		t.Fatalf("outgoing = %+v", out.OutgoingShares)
-	}
-	e := out.OutgoingShares[0]
-	if e.ShareID != 7 || e.Email != "x@y.z" || e.Permissions != "read,modify" {
-		t.Errorf("share entry = %+v", e)
-	}
-}
-
-func TestRemoveShare(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/removeshare") {
-			t.Errorf("endpoint = %s", r.URL.Path)
-		}
-		io.WriteString(w, `{"result":0}`)
-	})
-	_, out, err := s.RemoveShare(context.Background(), nil, RemoveShareInput{ShareID: 7})
-	if err != nil {
-		t.Fatalf("RemoveShare: %v", err)
-	}
-	if !out.Deleted {
-		t.Error("expected Deleted=true")
-	}
-}
-
-func TestListRevisions(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"result":0,"revisions":[{"revisionid":101,"size":50,"hash":"abc","created":"2026-01-01"}]}`)
-	})
-	_, out, err := s.ListRevisions(context.Background(), nil, ListRevisionsInput{FileID: 9})
-	if err != nil {
-		t.Fatalf("ListRevisions: %v", err)
-	}
-	if out.Total != 1 || out.Revisions[0].RevisionID != 101 || out.Revisions[0].Hash != "abc" {
-		t.Errorf("revisions = %+v", out)
-	}
-}
-
-func TestRevertRevision(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/revertrevision") {
-			t.Errorf("endpoint = %s", r.URL.Path)
-		}
-		io.WriteString(w, `{"result":0,"metadata":{"name":"f.txt","fileid":9,"size":50}}`)
-	})
-	_, out, err := s.RevertRevision(context.Background(), nil, RevertRevisionInput{FileID: 9, RevisionID: 101})
-	if err != nil {
-		t.Fatalf("RevertRevision: %v", err)
-	}
-	if out.ID != 9 || out.Name != "f.txt" {
-		t.Errorf("reverted entry = %+v", out)
-	}
-}
-
-func TestGetZipLink(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/getziplink"):
-			io.WriteString(w, `{"result":0,"hosts":["cdn"],"path":"/z/a.zip"}`)
-		default:
-			t.Errorf("unexpected %s", r.URL.Path)
-		}
-	})
-	_, out, err := s.GetZipLink(context.Background(), nil, GetZipLinkInput{FolderID: 3})
-	if err != nil {
-		t.Fatalf("GetZipLink: %v", err)
-	}
-	if !strings.HasSuffix(out.Link, "/z/a.zip") {
-		t.Errorf("zip link = %q", out.Link)
 	}
 }
 
@@ -702,26 +493,6 @@ func TestSaveText_RejectsUnsafeName(t *testing.T) {
 	})
 	if _, _, err := s.SaveText(context.Background(), nil, SaveTextInput{Name: "../evil", Content: "x"}); err == nil {
 		t.Error("expected rejection of traversal name in save_text")
-	}
-}
-
-func TestCreateUploadLink(t *testing.T) {
-	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		r.ParseForm()
-		if r.PostForm.Get("folderid") != "3" {
-			t.Errorf("folderid = %q", r.PostForm.Get("folderid"))
-		}
-		if r.PostForm.Get("comment") == "" {
-			t.Error("comment must be non-empty (pCloud requires it)")
-		}
-		io.WriteString(w, `{"result":0,"uploadlinkid":9,"code":"Z","link":"https://my.pcloud.com/#page=puplink&code=Z"}`)
-	})
-	_, out, err := s.CreateUploadLink(context.Background(), nil, CreateUploadLinkInput{FolderID: 3})
-	if err != nil {
-		t.Fatalf("CreateUploadLink: %v", err)
-	}
-	if !strings.Contains(out.Link, "puplink") {
-		t.Errorf("link = %q", out.Link)
 	}
 }
 

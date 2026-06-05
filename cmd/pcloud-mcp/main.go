@@ -36,7 +36,7 @@ import (
 	"github.com/terraincognita07/pcloud-mcp/internal/pcloud"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 func main() {
 	cmd := "serve"
@@ -147,13 +147,21 @@ func loadClient() (*pcloud.Client, error) {
 	return pcloud.New(creds.AccessToken, pcloud.Region(creds.Region)), nil
 }
 
+// serverInstructions is the MCP server-level guidance shown to hosts. The delete
+// wording must match reality: deletefile/deletefolderrecursive move items to
+// pCloud Trash (recoverable for a plan-dependent window), they do NOT erase
+// permanently — claiming otherwise misleads a host into over-warning the user.
+// Guarded by TestServerInstructions_DeleteWordingIsAccurate.
+const serverInstructions = "Tools for a pCloud account. List, organize, delete, and share files. " +
+	"Deleting moves items to pCloud Trash, recoverable for a limited, plan-dependent " +
+	"period before permanent purge; do not rely on Trash as a backup."
+
 // newMCPServer builds the MCP server with the tool set for the given mode.
 func newMCPServer(client *pcloud.Client, mode mcpserver.Mode, logger *slog.Logger) *mcp.Server {
 	impl := &mcp.Implementation{Name: "pcloud", Title: "pCloud", Version: version}
 	srv := mcp.NewServer(impl, &mcp.ServerOptions{
-		Logger: logger,
-		Instructions: "Tools for a pCloud account. List, organize, delete, and share files. " +
-			"Delete operations are permanent and cannot be undone.",
+		Logger:       logger,
+		Instructions: serverInstructions,
 	})
 	mcpserver.New(client).RegisterMode(srv, mode)
 	return srv

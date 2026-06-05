@@ -84,36 +84,6 @@ func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 	}, s.FileInfo)
 
 	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_list_links",
-		Description: "List the account's existing public links (created by share_file / create_upload_link): each link's id, URL, the target's name, and download count. Use pcloud_delete_link to revoke one. Read-only.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
-	}, s.ListLinks)
-
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_list_trash",
-		Description: "List items in pCloud's Trash (folder_id 0 = Trash root). Paged like list_folder (offset/limit). Each entry shows orig_parent_folder_id — where it lived before deletion. Read-only.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
-	}, s.ListTrash)
-
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_list_shares",
-		Description: "List folder shares with other pCloud users: established shares and pending requests, each split into incoming (shared with you) and outgoing (you shared out), with the other party's email, folder, and permissions. Read-only.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
-	}, s.ListShares)
-
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_list_revisions",
-		Description: "List the saved revisions (version history) of a file by file_id: revision id, size, hash, and creation time. Read-only.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
-	}, s.ListRevisions)
-
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_get_zip_link",
-		Description: "Get a temporary URL to download a folder (and all its contents) as a single zip archive. Read-only; the zip is built by pCloud.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
-	}, s.GetZipLink)
-
-	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_get_media_link",
 		Description: "Get a temporary streaming URL for a video or audio file by file_id (set audio=true for audio). Read-only.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
@@ -182,12 +152,6 @@ func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 	}, s.CopyFolder)
 
 	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_restore_from_trash",
-		Description: "Restore a file or folder from pCloud's Trash by file_id OR folder_id (from pcloud_list_trash). Optionally restore_to a different folder; omit to put it back where it was.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
-	}, s.RestoreFromTrash)
-
-	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_share_file",
 		Description: "Create a public share link for a pCloud file. Anyone with the link can access the file, so confirm intent before sharing. Optional: expire_date, password, max_downloads. Returns link_id (revoke with pcloud_delete_link).",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
@@ -201,7 +165,7 @@ func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_delete_link",
-		Description: "Revoke a public link by link_id (from pcloud_list_links) so the URL stops working. This tightens access — the shared file/folder itself is untouched.",
+		Description: "Revoke a public link by link_id (returned by pcloud_share_file / pcloud_share_folder) so the URL stops working. This tightens access — the shared file/folder itself is untouched.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
 	}, s.DeleteLink)
 
@@ -210,42 +174,6 @@ func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 		Description: "Save text content directly into a new pCloud file (e.g. a note, summary, or generated document) without needing a local file. Provide folder_id (0 = root), a file name, and the text content.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
 	}, s.SaveText)
-
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_create_upload_link",
-		Description: "Create a public upload link for a pCloud folder. ANYONE with the returned URL can upload files into that folder without signing in — useful for collecting files from a phone or another person. Confirm intent before creating; it opens an unauthenticated write path into the account.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
-	}, s.CreateUploadLink)
-
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_list_upload_links",
-		Description: "List the account's existing upload links (created by create_upload_link): each link's id, URL, target folder, comment, and number of files received. Use pcloud_delete_upload_link to close one. Read-only.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
-	}, s.ListUploadLinks)
-
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_delete_upload_link",
-		Description: "Delete an upload link by upload_link_id (from pcloud_list_upload_links), closing that anonymous write path. Files already uploaded through it are untouched.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
-	}, s.DeleteUploadLink)
-
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_share_folder_with_user",
-		Description: "Share a pCloud folder with ANOTHER pCloud user by email, granting them access to your data. Read access is always granted; set can_create/can_modify/can_delete for write access. Outward-facing — confirm intent. Manage with pcloud_list_shares / pcloud_remove_share.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
-	}, s.ShareFolderWithUser)
-
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_remove_share",
-		Description: "Revoke a folder share (or pending request) by share_id (from pcloud_list_shares), removing that user's access.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
-	}, s.RemoveShare)
-
-	mcp.AddTool(m, &mcp.Tool{
-		Name:        "pcloud_revert_revision",
-		Description: "Revert a file to an earlier revision by file_id + revision_id (from pcloud_list_revisions). Reversible: the current content becomes a new revision.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
-	}, s.RevertRevision)
 
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_upload_from_url",
@@ -269,11 +197,6 @@ type Entry struct {
 // DeleteResult acknowledges a delete/revoke that returns no payload.
 type DeleteResult struct {
 	Deleted bool `json:"deleted"`
-}
-
-// OKResult is a minimal success acknowledgement for tools with no payload.
-type OKResult struct {
-	OK bool `json:"ok"`
 }
 
 // LinkResult carries a single resolved URL.

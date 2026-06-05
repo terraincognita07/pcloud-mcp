@@ -38,18 +38,16 @@ Once it's connected, you talk to your pCloud in plain language. For example:
 - *"Save this summary as notes.md in my Journal folder."* — write text Claude generated straight into a file, no local copy needed.
 - *"Make a new folder 2026, move last year's files into it, rename the old one to Archive."* — organize without the web UI.
 - *"Give me a link to share invoice.pdf."* — get a public download link (works from your phone too).
-- *"Create an upload link for my Inbox folder."* — let someone (or your phone) drop files in without an account.
 - *"Delete the temp folder."* — remove files/folders (your host asks you to confirm — these are flagged destructive).
 
 It works two ways: **locally** through Claude Desktop (files land on your computer), or as a **remote server** so Claude.ai on the web or your phone can reach your pCloud from anywhere — see [Remote access](#remote-access-claudeai-web--phone).
 
 ## Features
 
-- **33 tools** covering the full account: browse, image/video thumbnails, read file content, account/file
+- **21 tools** covering the account: browse, image/video thumbnails, read file content, account/file
   info, download/upload (incl. fetch-from-URL), save text, create/copy/move/rename/delete folders and
-  files, file revisions (list/revert), public links for files and folders (with expiry/password/limits)
-  and upload links (list/revoke), folder sharing with other users, zip and streaming links, and Trash
-  (list/restore) — see [What you can do](#what-you-can-do) above and the [Tools](#tools) table below.
+  files, public links for files and folders (with expiry/password/limits, revoke), and streaming
+  links — see [What you can do](#what-you-can-do) above and the [Tools](#tools) table below.
 - **Path-traversal–proof downloads** — pCloud folder names are attacker-influenced (a shared folder
   may be named `..`), so every remote name is validated *and* every write goes through an `os.Root`
   scoped to your destination. The kernel refuses any escape, even via a symlink planted mid-download.
@@ -160,7 +158,7 @@ That's it — `serve` reads the saved credentials and speaks MCP over stdio.
 browser or on your phone can reach your pCloud from anywhere. It requires a
 bearer token and a reverse proxy for HTTPS, and it **hides the local-filesystem
 tools** (download/upload would write to the server's disk, not yours). Cloud-side
-tools — browse, organize, **share link**, **save text**, **upload link** — stay
+tools — browse, organize, **share link**, **save text**, **fetch from URL** — stay
 available.
 
 ```sh
@@ -180,11 +178,6 @@ is in [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 | `pcloud_read_file` | read-only | Return a file's content inline — text as text, viewable images as image; oversized/binary files return a temporary link. |
 | `pcloud_account_info` | read-only | Account email, storage quota and used space, premium status. |
 | `pcloud_file_info` | read-only | One file's metadata (size, type, dates) and content hashes, without downloading. |
-| `pcloud_list_links` | read-only | List existing public links (target, URL, downloads). |
-| `pcloud_list_trash` | read-only | List items in Trash (paged); shows where each lived before deletion. |
-| `pcloud_list_shares` | read-only | List folder shares with other pCloud users (incoming/outgoing, permissions). |
-| `pcloud_list_revisions` | read-only | List a file's saved revisions (version history). |
-| `pcloud_get_zip_link` | read-only | Temporary link to download a folder as a single zip. |
 | `pcloud_get_media_link` | read-only | Temporary streaming link for a video/audio file. |
 | `pcloud_download_file` | additive | Download one file to a local directory. |
 | `pcloud_download_folder` | additive | Mirror a folder tree locally (traversal-checked). |
@@ -194,18 +187,11 @@ is in [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 | `pcloud_move_folder` | additive | Rename and/or move a folder. |
 | `pcloud_copy_file` | additive | Copy a file into another folder (original left in place). |
 | `pcloud_copy_folder` | additive | Copy a folder and its contents into another folder (original left in place). |
-| `pcloud_restore_from_trash` | additive | Restore a file/folder from Trash, to its original spot or a chosen folder. |
-| `pcloud_revert_revision` | additive | Revert a file to an earlier revision (reversible — current content becomes a revision). |
 | `pcloud_upload_from_url` | additive | Have pCloud fetch a remote URL straight into a folder (works in HTTP mode). |
-| `pcloud_share_folder_with_user` | additive | Share a folder with another pCloud user by email (read or read/write). |
-| `pcloud_remove_share` | additive | Revoke a folder share with a user (or a pending request). |
 | `pcloud_share_file` | additive | Create a public share link to a file (optional expiry/password/max-downloads; returns link_id). |
 | `pcloud_share_folder` | additive | Create a public share link to a whole folder (same options as share_file). |
 | `pcloud_save_text` | additive | Write text straight into a new pCloud file — no local file needed. |
-| `pcloud_create_upload_link` | additive | Public upload link: collect files into a folder from a phone/another person. |
-| `pcloud_list_upload_links` | read-only | List existing upload links (target folder, files received). |
 | `pcloud_delete_link` | additive | Revoke a public (download) link by id (the shared file/folder is untouched). |
-| `pcloud_delete_upload_link` | additive | Delete an upload link by id (already-uploaded files are untouched). |
 | `pcloud_delete_file` | **destructive** | Delete a file (moved to pCloud's time-limited Trash). |
 | `pcloud_delete_folder` | **destructive** | Delete a folder and all its contents recursively (moved to pCloud's time-limited Trash). |
 

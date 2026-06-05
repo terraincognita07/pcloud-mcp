@@ -61,15 +61,13 @@ func TestIntegration_AllToolsRegistered(t *testing.T) {
 		got[tool.Name] = true
 	}
 	want := []string{
-		"pcloud_list_folder", "pcloud_get_thumbnail", "pcloud_read_file", "pcloud_account_info", "pcloud_file_info", "pcloud_list_links", "pcloud_list_trash", "pcloud_download_file", "pcloud_download_folder",
+		"pcloud_list_folder", "pcloud_get_thumbnail", "pcloud_read_file", "pcloud_account_info", "pcloud_file_info",
+		"pcloud_download_file", "pcloud_download_folder",
 		"pcloud_upload_file", "pcloud_create_folder", "pcloud_delete_file",
 		"pcloud_delete_folder", "pcloud_move_file", "pcloud_move_folder",
-		"pcloud_copy_file", "pcloud_copy_folder", "pcloud_restore_from_trash", "pcloud_delete_link",
-		"pcloud_share_folder", "pcloud_list_upload_links", "pcloud_delete_upload_link",
-		"pcloud_share_folder_with_user", "pcloud_list_shares", "pcloud_remove_share",
-		"pcloud_list_revisions", "pcloud_revert_revision",
-		"pcloud_get_zip_link", "pcloud_upload_from_url", "pcloud_get_media_link",
-		"pcloud_share_file", "pcloud_save_text", "pcloud_create_upload_link",
+		"pcloud_copy_file", "pcloud_copy_folder", "pcloud_delete_link",
+		"pcloud_share_folder", "pcloud_upload_from_url", "pcloud_get_media_link",
+		"pcloud_share_file", "pcloud_save_text",
 	}
 	if len(res.Tools) != len(want) {
 		t.Errorf("tool count = %d; want %d", len(res.Tools), len(want))
@@ -100,7 +98,7 @@ func TestIntegration_RemoteModeHidesLocalDiskTools(t *testing.T) {
 			t.Errorf("remote mode must NOT expose local-disk tool %q", hidden)
 		}
 	}
-	for _, present := range []string{"pcloud_list_folder", "pcloud_share_file", "pcloud_save_text", "pcloud_create_upload_link", "pcloud_delete_file"} {
+	for _, present := range []string{"pcloud_list_folder", "pcloud_share_file", "pcloud_save_text", "pcloud_delete_file"} {
 		if !got[present] {
 			t.Errorf("remote mode must still expose cloud tool %q", present)
 		}
@@ -146,11 +144,9 @@ func TestIntegration_OutwardToolsNotHarmless(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	outward := map[string]bool{
-		"pcloud_share_file":             true,
-		"pcloud_share_folder":           true,
-		"pcloud_share_folder_with_user": true,
-		"pcloud_create_upload_link":     true,
-		"pcloud_upload_from_url":        true,
+		"pcloud_share_file":      true,
+		"pcloud_share_folder":    true,
+		"pcloud_upload_from_url": true,
 	}
 	seen := 0
 	for _, tool := range res.Tools {

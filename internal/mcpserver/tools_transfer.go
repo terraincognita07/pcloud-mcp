@@ -141,21 +141,7 @@ func (s *Server) UploadFromURL(ctx context.Context, _ *mcp.CallToolRequest, in U
 	return nil, out, nil
 }
 
-// --- get_zip_link / get_media_link ---
-
-// GetZipLinkInput selects the folder to zip.
-type GetZipLinkInput struct {
-	FolderID int64 `json:"folder_id" jsonschema:"pCloud folder id to download as a zip; 0 = account root"`
-}
-
-// GetZipLink returns a temporary URL to download a folder as a zip archive.
-func (s *Server) GetZipLink(ctx context.Context, _ *mcp.CallToolRequest, in GetZipLinkInput) (*mcp.CallToolResult, LinkResult, error) {
-	link, err := s.client.GetZipLink(ctx, in.FolderID)
-	if err != nil {
-		return nil, LinkResult{}, err
-	}
-	return nil, LinkResult{Link: link}, nil
-}
+// --- get_media_link ---
 
 // GetMediaLinkInput selects a media file and the stream kind.
 type GetMediaLinkInput struct {

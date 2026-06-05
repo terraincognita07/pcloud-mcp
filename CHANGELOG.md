@@ -3,6 +3,27 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses [SemVer](https://semver.org/).
 
+## [0.4.0] — 2026-06-05
+
+### Removed
+- Dropped 12 tools that pCloud does not support over OAuth `access_token` auth, so they could never
+  work in this OAuth-only server (every call returned `result 1000 "Log in required"`, or `2076 "no
+  permissions"` for the user-share family). The token itself is valid — the remaining 21 tools work —
+  but pCloud gates these specific methods behind the legacy `auth` token, a long-standing API
+  limitation also seen by other OAuth clients (e.g. rclone's trash/cleanup). Shipping them as live
+  tools was misleading. Removed: `pcloud_list_trash`, `pcloud_restore_from_trash` (trash_list /
+  trash_restore), `pcloud_list_revisions`, `pcloud_revert_revision`, `pcloud_get_zip_link`,
+  `pcloud_list_links` (listpublinks), `pcloud_create_upload_link`, `pcloud_list_upload_links`,
+  `pcloud_delete_upload_link`, `pcloud_share_folder_with_user`, `pcloud_list_shares`,
+  `pcloud_remove_share`. Public link/sharing that *does* work is unchanged: `pcloud_share_file`,
+  `pcloud_share_folder` (create a link) and `pcloud_delete_link` (revoke it) remain.
+- Tool surface: 33 → 21 (18 cloud-side over HTTP; 3 local-disk in stdio mode).
+
+### Fixed
+- Delete wording corrected across the server instruction, tool descriptions, and docs: deletes move to
+  pCloud Trash (recoverable for a plan-dependent window), they do not erase permanently. Locked by
+  `TestServerInstructions_DeleteWordingIsAccurate`.
+
 ## [0.3.0] — 2026-06-05
 
 ### Added

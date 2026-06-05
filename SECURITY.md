@@ -43,13 +43,12 @@ can reason about them:
   file *content*. This surface exists in **HTTP (remote) mode too**: `pcloud_read_file` and
   `pcloud_get_thumbnail` return file content/previews inline, so a maliciously-named or maliciously-
   authored shared file can carry instructions into the model even when the local-disk tools are hidden.
-- **Outward-facing tools grant external access.** `pcloud_share_file`, `pcloud_share_folder`,
-  `pcloud_share_folder_with_user`, `pcloud_create_upload_link` and `pcloud_upload_from_url` are
-  *additive* (so they are not marked `DestructiveHint` — that would be untruthful) yet they expose data
-  or open a write path to people outside your account: a `share_folder_with_user` to an attacker's
-  email is a quiet, persistent exfiltration. Injection (above) plus an ungated outward call is a real
-  chain. These tools advertise `OpenWorldHint` and say "confirm intent" in their descriptions — **keep
-  host confirmation enabled for sharing, not only for delete.**
+- **Outward-facing tools grant external access.** `pcloud_share_file`, `pcloud_share_folder` and
+  `pcloud_upload_from_url` are *additive* (so they are not marked `DestructiveHint` — that would be
+  untruthful) yet they expose data or open a path to people outside your account: a public
+  `share_folder` link to sensitive data is a quiet, persistent exfiltration. Injection (above) plus an
+  ungated outward call is a real chain. These tools advertise `OpenWorldHint` and say "confirm intent"
+  in their descriptions — **keep host confirmation enabled for sharing, not only for delete.**
 - **The host approves tool calls.** Destructive and outward-facing tools are annotated, but enforcing
   "ask the user before deleting or sharing" lives in the MCP host (e.g. Claude's permission prompt),
   not here.
