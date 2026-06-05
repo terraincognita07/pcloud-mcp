@@ -5,6 +5,13 @@ All notable changes to this project are documented here. Format loosely follows
 
 ## [0.2.1] — 2026-06-05
 
+### Security
+- Bump pinned build toolchain `go1.26.3 → go1.26.4` for two reachable stdlib advisories:
+  GO-2026-5039 (`net/textproto`) and GO-2026-5037 (`crypto/x509`), both reached from the OAuth
+  paths.
+- Bump indirect dep `golang.org/x/sys` v0.41.0 → v0.44.0 (GO-2026-5024, not reachable). `govulncheck`
+  is now fully clean — 0 findings, including required modules.
+
 ### Fixed
 - `pcloud_list_folder`, `pcloud_save_text`, and other metadata-returning calls failed to decode pCloud
   responses whose `hash` exceeds `math.MaxInt64` (a real, full-range unsigned 64-bit value), aborting the
