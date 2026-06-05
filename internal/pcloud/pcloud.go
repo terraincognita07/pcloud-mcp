@@ -235,6 +235,29 @@ func (c *Client) GetFileLink(ctx context.Context, fileID int64, forceDl bool) (s
 	return buildDownloadURL(out.Hosts[0], out.Path)
 }
 
+// GetThumbLink resolves a direct, time-limited URL to a JPEG thumbnail of fileID
+// at the requested size ("WIDTHxHEIGHT", e.g. "256x256"). pCloud renders
+// thumbnails for image and video files. The host/path come from the API and are
+// assembled through the same buildDownloadURL host-confusion guard as
+// GetFileLink, so a malicious upstream cannot redirect the fetch off-host.
+func (c *Client) GetThumbLink(ctx context.Context, fileID int64, size string) (string, error) {
+	params := url.Values{}
+	params.Set("fileid", strconv.FormatInt(fileID, 10))
+	params.Set("size", size)
+	var out struct {
+		envelope
+		Hosts []string `json:"hosts"`
+		Path  string   `json:"path"`
+	}
+	if err := c.call(ctx, "getthumblink", params, &out); err != nil {
+		return "", err
+	}
+	if len(out.Hosts) == 0 || out.Path == "" {
+		return "", fmt.Errorf("pcloud getthumblink: empty hosts or path in response")
+	}
+	return buildDownloadURL(out.Hosts[0], out.Path)
+}
+
 // buildDownloadURL safely assembles a CDN download URL from the host and
 // pre-encoded path returned by getfilelink. The host and path come from the API
 // response, so a compromised or MITM'd upstream could try to redirect the

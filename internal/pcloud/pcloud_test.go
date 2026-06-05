@@ -156,6 +156,28 @@ func TestGetFileLinkBuildsURL(t *testing.T) {
 	}
 }
 
+func TestGetThumbLinkBuildsURL(t *testing.T) {
+	var gotSize string
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotSize = r.PostForm.Get("size")
+		if r.PostForm.Get("fileid") != "42" {
+			t.Errorf("fileid = %q; want 42", r.PostForm.Get("fileid"))
+		}
+		io.WriteString(w, `{"result":0,"hosts":["c1.pcloud.com"],"path":"/t/thumb.jpg"}`)
+	})
+	got, err := c.GetThumbLink(context.Background(), 42, "256x256")
+	if err != nil {
+		t.Fatalf("GetThumbLink: %v", err)
+	}
+	if gotSize != "256x256" {
+		t.Errorf("size param = %q; want 256x256", gotSize)
+	}
+	if want := "https://c1.pcloud.com/t/thumb.jpg"; got != want {
+		t.Errorf("GetThumbLink = %q; want %q", got, want)
+	}
+}
+
 // TestBuildDownloadURL_RejectsHostConfusion is the regression test for the
 // malicious-upstream finding: a path or host crafted to move the authority off
 // the real CDN host must be refused.

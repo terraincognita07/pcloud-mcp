@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `pcloud_read_file` — read a file by `file_id` and return its content inline: text as text, viewable
+  images (JPEG/PNG/GIF/WebP) as an image. Oversized files (over `max_bytes`, default 5 MiB, max 10 MiB)
+  and non-text/non-image binaries return a temporary download link instead, so a large file never
+  overflows the context. Available in both stdio and HTTP modes.
+- `pcloud_get_thumbnail` — fetch a small JPEG preview of an image or video by `file_id` and return it
+  inline, so the model can see it. Renders to JPEG server-side (works for formats the model can't read
+  directly, e.g. BMP), size-bounded (`WIDTHxHEIGHT`, default 256x256, max 1024x1024) and byte-capped.
+  Available in both stdio and HTTP modes (it doesn't write local disk). Enables cheap visual
+  scanning/identification of photos without pulling full-resolution files.
+
+### Changed
+- `pcloud_list_folder` now pages: optional `offset`/`limit` (default 200, max 1000) and returns
+  `total`/`has_more`/`next_offset`, so a large folder no longer overflows the client's context.
+  Backward-compatible — the defaults leave small-folder behavior unchanged.
+
 ## [0.2.1] — 2026-06-05
 
 ### Security

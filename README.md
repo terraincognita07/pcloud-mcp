@@ -45,9 +45,9 @@ It works two ways: **locally** through Claude Desktop (files land on your comput
 
 ## Features
 
-- **12 tools** covering the full account: browse, download, upload, save text, create/move/rename/delete
-  folders and files, public share links, and public upload links — see [What you can do](#what-you-can-do)
-  above and the [Tools](#tools) table below.
+- **14 tools** covering the full account: browse, image/video thumbnails, read file content, download, upload, save text,
+  create/move/rename/delete folders and files, public share links, and public upload links — see
+  [What you can do](#what-you-can-do) above and the [Tools](#tools) table below.
 - **Path-traversal–proof downloads** — pCloud folder names are attacker-influenced (a shared folder
   may be named `..`), so every remote name is validated *and* every write goes through an `os.Root`
   scoped to your destination. The kernel refuses any escape, even via a symlink planted mid-download.
@@ -173,7 +173,9 @@ is in [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 
 | Tool | Kind | Description |
 |---|---|---|
-| `pcloud_list_folder` | read-only | List a folder's contents (`folder_id` 0 = root). |
+| `pcloud_list_folder` | read-only | List a folder's contents (`folder_id` 0 = root); paged (`offset`/`limit`) so large folders don't overflow the context. |
+| `pcloud_get_thumbnail` | read-only | Return a small JPEG preview of an image/video inline (works for BMP etc.) — for cheap visual scanning/identification. |
+| `pcloud_read_file` | read-only | Return a file's content inline — text as text, viewable images as image; oversized/binary files return a temporary link. |
 | `pcloud_download_file` | additive | Download one file to a local directory. |
 | `pcloud_download_folder` | additive | Mirror a folder tree locally (traversal-checked). |
 | `pcloud_upload_file` | additive | Upload a local file into a folder. |

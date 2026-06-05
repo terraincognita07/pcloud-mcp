@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/terraincognita07/pcloud-mcp/internal/pcloud"
 )
 
@@ -52,6 +54,151 @@ func TestListFolder(t *testing.T) {
 	}
 	if out.Entries[1].ID != 7 || !out.Entries[1].IsFolder {
 		t.Errorf("folder entry wrong: %+v", out.Entries[1])
+	}
+}
+
+func TestListFolder_Pagination(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"result":0,"metadata":{"name":"big","folderid":1,"isfolder":true,"contents":[
+			{"name":"a","isfolder":false,"fileid":1},
+			{"name":"b","isfolder":false,"fileid":2},
+			{"name":"c","isfolder":false,"fileid":3},
+			{"name":"d","isfolder":false,"fileid":4},
+			{"name":"e","isfolder":false,"fileid":5}
+		]}}`)
+	})
+	_, out, err := s.ListFolder(context.Background(), nil, ListFolderInput{FolderID: 1, Offset: 1, Limit: 2})
+	if err != nil {
+		t.Fatalf("ListFolder: %v", err)
+	}
+	if out.Total != 5 || out.Offset != 1 || len(out.Entries) != 2 {
+		t.Fatalf("page wrong: total=%d offset=%d n=%d", out.Total, out.Offset, len(out.Entries))
+	}
+	if out.Entries[0].Name != "b" || out.Entries[1].Name != "c" {
+		t.Errorf("page contents wrong: %+v", out.Entries)
+	}
+	if !out.HasMore || out.NextOffset != 3 {
+		t.Errorf("expected has_more with next_offset=3, got has_more=%v next=%d", out.HasMore, out.NextOffset)
+	}
+
+	// Last page: no more.
+	_, last, err := s.ListFolder(context.Background(), nil, ListFolderInput{FolderID: 1, Offset: 4, Limit: 2})
+	if err != nil {
+		t.Fatalf("ListFolder last: %v", err)
+	}
+	if len(last.Entries) != 1 || last.HasMore || last.NextOffset != 0 {
+		t.Errorf("last page wrong: n=%d has_more=%v next=%d", len(last.Entries), last.HasMore, last.NextOffset)
+	}
+}
+
+func TestGetThumbnail(t *testing.T) {
+	jpeg := "\xff\xd8\xff\xe0JPEGBYTES"
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getthumblink"):
+			io.WriteString(w, `{"result":0,"hosts":["cdn"],"path":"/t/p.jpg"}`)
+		case strings.HasPrefix(r.URL.Path, "/t/"):
+			io.WriteString(w, jpeg)
+		default:
+			t.Errorf("unexpected %s", r.URL.Path)
+		}
+	})
+	res, out, err := s.GetThumbnail(context.Background(), nil, GetThumbnailInput{FileID: 7})
+	if err != nil {
+		t.Fatalf("GetThumbnail: %v", err)
+	}
+	if out.FileID != 7 || out.Size != "256x256" || out.Bytes != int64(len(jpeg)) {
+		t.Errorf("output wrong: %+v", out)
+	}
+	if res == nil || len(res.Content) != 1 {
+		t.Fatalf("expected one content block, got %+v", res)
+	}
+	img, ok := res.Content[0].(*mcp.ImageContent)
+	if !ok {
+		t.Fatalf("content is %T, want *mcp.ImageContent", res.Content[0])
+	}
+	if img.MIMEType != "image/jpeg" || string(img.Data) != jpeg {
+		t.Errorf("image content wrong: mime=%q bytes=%q", img.MIMEType, img.Data)
+	}
+}
+
+func TestGetThumbnail_RejectsBadSize(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("must not call API for an invalid size: %s", r.URL.Path)
+	})
+	for _, bad := range []string{"256", "0x0", "9999x9999", "axb", "256x"} {
+		if _, _, err := s.GetThumbnail(context.Background(), nil, GetThumbnailInput{FileID: 7, Size: bad}); err == nil {
+			t.Errorf("size %q should be rejected", bad)
+		}
+	}
+}
+
+func TestReadFile_Text(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getfilelink"):
+			io.WriteString(w, `{"result":0,"hosts":["cdn"],"path":"/dl/n.md"}`)
+		case strings.HasPrefix(r.URL.Path, "/dl/"):
+			io.WriteString(w, "# hello\nplain text body")
+		default:
+			t.Errorf("unexpected %s", r.URL.Path)
+		}
+	})
+	res, out, err := s.ReadFile(context.Background(), nil, ReadFileInput{FileID: 3})
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if out.Kind != "text" || res == nil || len(res.Content) != 1 {
+		t.Fatalf("expected text content, out=%+v", out)
+	}
+	txt, ok := res.Content[0].(*mcp.TextContent)
+	if !ok || !strings.Contains(txt.Text, "plain text body") {
+		t.Errorf("text content wrong: %+v", res.Content[0])
+	}
+}
+
+func TestReadFile_Image(t *testing.T) {
+	jpeg := "\xff\xd8\xff\xe0imagebytes"
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getfilelink"):
+			io.WriteString(w, `{"result":0,"hosts":["cdn"],"path":"/dl/p.jpg"}`)
+		case strings.HasPrefix(r.URL.Path, "/dl/"):
+			io.WriteString(w, jpeg)
+		default:
+			t.Errorf("unexpected %s", r.URL.Path)
+		}
+	})
+	res, out, err := s.ReadFile(context.Background(), nil, ReadFileInput{FileID: 3})
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if out.Kind != "image" || out.ContentType != "image/jpeg" {
+		t.Fatalf("expected image, out=%+v", out)
+	}
+	img, ok := res.Content[0].(*mcp.ImageContent)
+	if !ok || string(img.Data) != jpeg {
+		t.Errorf("image content wrong: %+v", res.Content[0])
+	}
+}
+
+func TestReadFile_TooLargeReturnsLink(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getfilelink"):
+			io.WriteString(w, `{"result":0,"hosts":["cdn"],"path":"/dl/big.bin"}`)
+		case strings.HasPrefix(r.URL.Path, "/dl/"):
+			io.WriteString(w, "0123456789")
+		default:
+			t.Errorf("unexpected %s", r.URL.Path)
+		}
+	})
+	res, out, err := s.ReadFile(context.Background(), nil, ReadFileInput{FileID: 3, MaxBytes: 4})
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if out.Kind != "link" || out.Link == "" || res != nil {
+		t.Errorf("expected link fallback for over-cap file, out=%+v res=%v", out, res)
 	}
 }
 
