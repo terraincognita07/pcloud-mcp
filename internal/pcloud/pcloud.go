@@ -38,6 +38,8 @@ import (
 // every subsequent call must use.
 type Region int
 
+// The supported pCloud data regions, as reported by the OAuth token exchange's
+// locationid. Each fixes the API host every subsequent call must use.
 const (
 	RegionUS Region = 1 // api.pcloud.com
 	RegionEU Region = 2 // eapi.pcloud.com
@@ -601,19 +603,275 @@ func (c *Client) DeletePubLink(ctx context.Context, linkID int64) error {
 	return c.call(ctx, "deletepublink", params, nil)
 }
 
-// GetFilePubLink creates a public share link for fileID and returns the link
-// URL. Sharing is an outward-facing action; the MCP layer should confirm intent.
-func (c *Client) GetFilePubLink(ctx context.Context, fileID int64) (string, error) {
+// LinkOptions are optional settings for a public link. Zero values mean "not
+// set" (no expiry / no limit / no password).
+type LinkOptions struct {
+	Expire       string // datetime "YYYY-MM-DD HH:MM:SS"; empty = never expires
+	MaxDownloads int64
+	MaxTraffic   int64
+	Password     string
+}
+
+func (o LinkOptions) apply(p url.Values) {
+	if o.Expire != "" {
+		p.Set("expire", o.Expire)
+	}
+	if o.MaxDownloads > 0 {
+		p.Set("maxdownloads", strconv.FormatInt(o.MaxDownloads, 10))
+	}
+	if o.MaxTraffic > 0 {
+		p.Set("maxtraffic", strconv.FormatInt(o.MaxTraffic, 10))
+	}
+	if o.Password != "" {
+		p.Set("linkpassword", o.Password)
+	}
+}
+
+// PubLinkResult is the outcome of creating a public link: the URL plus the
+// linkid (for later revoke/modify) and code.
+type PubLinkResult struct {
+	Link   string `json:"link"`
+	LinkID int64  `json:"linkid"`
+	Code   string `json:"code"`
+}
+
+// GetFilePubLink creates a public share link for fileID. Sharing is an
+// outward-facing action; the MCP layer should confirm intent.
+func (c *Client) GetFilePubLink(ctx context.Context, fileID int64, opts LinkOptions) (*PubLinkResult, error) {
+	params := url.Values{}
+	params.Set("fileid", strconv.FormatInt(fileID, 10))
+	opts.apply(params)
+	var out struct {
+		envelope
+		PubLinkResult
+	}
+	if err := c.call(ctx, "getfilepublink", params, &out); err != nil {
+		return nil, err
+	}
+	return &out.PubLinkResult, nil
+}
+
+// GetFolderPubLink creates a public share link for an entire folder. Like
+// GetFilePubLink it is outward-facing and should be confirmed.
+func (c *Client) GetFolderPubLink(ctx context.Context, folderID int64, opts LinkOptions) (*PubLinkResult, error) {
+	params := url.Values{}
+	params.Set("folderid", strconv.FormatInt(folderID, 10))
+	opts.apply(params)
+	var out struct {
+		envelope
+		PubLinkResult
+	}
+	if err := c.call(ctx, "getfolderpublink", params, &out); err != nil {
+		return nil, err
+	}
+	return &out.PubLinkResult, nil
+}
+
+// UploadLink is one existing upload link from ListUploadLinks.
+type UploadLink struct {
+	UploadLinkID int64    `json:"uploadlinkid"`
+	Link         string   `json:"link"`
+	Code         string   `json:"code"`
+	Comment      string   `json:"comment"`
+	Files        int64    `json:"files"`
+	Space        int64    `json:"space"`
+	Created      string   `json:"created"`
+	Metadata     Metadata `json:"metadata"`
+}
+
+// ListUploadLinks returns the account's existing upload links.
+func (c *Client) ListUploadLinks(ctx context.Context) ([]UploadLink, error) {
+	var out struct {
+		envelope
+		UploadLinks []UploadLink `json:"uploadlinks"`
+	}
+	if err := c.call(ctx, "listuploadlinks", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.UploadLinks, nil
+}
+
+// DeleteUploadLink deletes the upload link with uploadLinkID, closing that
+// anonymous write path into the account.
+func (c *Client) DeleteUploadLink(ctx context.Context, uploadLinkID int64) error {
+	params := url.Values{}
+	params.Set("uploadlinkid", strconv.FormatInt(uploadLinkID, 10))
+	return c.call(ctx, "deleteuploadlink", params, nil)
+}
+
+// SharePermBits maps to pCloud's sharefolder permissions bitmask: read access is
+// implicit (0), plus optional create/modify/delete.
+const (
+	SharePermCreate = 1
+	SharePermModify = 2
+	SharePermDelete = 4
+)
+
+// ShareFolderWithUser shares folderID with another pCloud user (by email) at the
+// given permission bitmask (SharePerm* OR'd together; 0 = read-only). This grants
+// a named person access to the owner's data, so the MCP layer must confirm intent.
+func (c *Client) ShareFolderWithUser(ctx context.Context, folderID int64, mail string, permissions int, name, message string) error {
+	params := url.Values{}
+	params.Set("folderid", strconv.FormatInt(folderID, 10))
+	params.Set("mail", mail)
+	params.Set("permissions", strconv.Itoa(permissions))
+	if name != "" {
+		params.Set("name", name)
+	}
+	if message != "" {
+		params.Set("message", message)
+	}
+	return c.call(ctx, "sharefolder", params, nil)
+}
+
+// Share is one entry from ListShares (an established share or a pending request).
+type Share struct {
+	ShareID        int64  `json:"shareid"`
+	ShareRequestID int64  `json:"sharerequestid"`
+	FolderID       int64  `json:"folderid"`
+	ShareName      string `json:"sharename"`
+	ToMail         string `json:"tomail"`
+	FromMail       string `json:"frommail"`
+	CanRead        bool   `json:"canread"`
+	CanCreate      bool   `json:"cancreate"`
+	CanModify      bool   `json:"canmodify"`
+	CanDelete      bool   `json:"candelete"`
+	Created        string `json:"created"`
+	Expires        string `json:"expires"`
+}
+
+// Shares groups share entries by direction.
+type Shares struct {
+	Incoming []Share `json:"incoming"`
+	Outgoing []Share `json:"outgoing"`
+}
+
+// ShareList is the listshares response: established shares and pending requests,
+// each split into incoming (shared with me) and outgoing (I shared out).
+type ShareList struct {
+	Shares   Shares `json:"shares"`
+	Requests Shares `json:"requests"`
+}
+
+// ListShares returns the account's folder shares with other pCloud users.
+func (c *Client) ListShares(ctx context.Context) (*ShareList, error) {
+	var out struct {
+		envelope
+		ShareList
+	}
+	if err := c.call(ctx, "listshares", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out.ShareList, nil
+}
+
+// RemoveShare removes a share (or share request) by shareID, as returned by
+// ListShares, revoking that user's access.
+func (c *Client) RemoveShare(ctx context.Context, shareID int64) error {
+	params := url.Values{}
+	params.Set("shareid", strconv.FormatInt(shareID, 10))
+	return c.call(ctx, "removeshare", params, nil)
+}
+
+// Revision is one historical version of a file from ListRevisions. Hash is a
+// hex string here (unlike Metadata.Hash, which is the numeric file hash).
+type Revision struct {
+	RevisionID int64  `json:"revisionid"`
+	Size       int64  `json:"size"`
+	Hash       string `json:"hash"`
+	Created    string `json:"created"`
+}
+
+// ListRevisions returns the saved revisions of fileID, newest history pCloud
+// retains for the account's plan.
+func (c *Client) ListRevisions(ctx context.Context, fileID int64) ([]Revision, error) {
 	params := url.Values{}
 	params.Set("fileid", strconv.FormatInt(fileID, 10))
 	var out struct {
 		envelope
-		Link string `json:"link"`
+		Revisions []Revision `json:"revisions"`
 	}
-	if err := c.call(ctx, "getfilepublink", params, &out); err != nil {
+	if err := c.call(ctx, "listrevisions", params, &out); err != nil {
+		return nil, err
+	}
+	return out.Revisions, nil
+}
+
+// RevertRevision reverts fileID to revisionID (from ListRevisions) and returns
+// the file's new metadata. The current content becomes a new revision, so this
+// is itself reversible.
+func (c *Client) RevertRevision(ctx context.Context, fileID, revisionID int64) (*Metadata, error) {
+	params := url.Values{}
+	params.Set("fileid", strconv.FormatInt(fileID, 10))
+	params.Set("revisionid", strconv.FormatInt(revisionID, 10))
+	var out struct {
+		envelope
+		Metadata Metadata `json:"metadata"`
+	}
+	if err := c.call(ctx, "revertrevision", params, &out); err != nil {
+		return nil, err
+	}
+	return &out.Metadata, nil
+}
+
+// GetZipLink resolves a time-limited URL to download folderID and its contents
+// as a single zip archive. The host/path go through the buildDownloadURL guard.
+func (c *Client) GetZipLink(ctx context.Context, folderID int64) (string, error) {
+	params := url.Values{}
+	params.Set("folderid", strconv.FormatInt(folderID, 10))
+	var out struct {
+		envelope
+		Hosts []string `json:"hosts"`
+		Path  string   `json:"path"`
+	}
+	if err := c.call(ctx, "getziplink", params, &out); err != nil {
 		return "", err
 	}
-	return out.Link, nil
+	if len(out.Hosts) == 0 || out.Path == "" {
+		return "", fmt.Errorf("pcloud getziplink: empty hosts or path in response")
+	}
+	return buildDownloadURL(out.Hosts[0], out.Path)
+}
+
+// UploadFromURL tells pCloud to fetch remoteURL directly into folderID — the
+// bytes go straight from the source to pCloud, never through this server — and
+// returns the resulting file metadata.
+func (c *Client) UploadFromURL(ctx context.Context, remoteURL string, folderID int64) ([]Metadata, error) {
+	params := url.Values{}
+	params.Set("url", remoteURL)
+	params.Set("folderid", strconv.FormatInt(folderID, 10))
+	var out struct {
+		envelope
+		Metadata []Metadata `json:"metadata"`
+	}
+	if err := c.call(ctx, "downloadfile", params, &out); err != nil {
+		return nil, err
+	}
+	return out.Metadata, nil
+}
+
+// GetStreamLink resolves a time-limited streaming URL for a media file: audio
+// true uses getaudiolink, otherwise getvideolink. The host/path go through the
+// buildDownloadURL guard.
+func (c *Client) GetStreamLink(ctx context.Context, fileID int64, audio bool) (string, error) {
+	method := "getvideolink"
+	if audio {
+		method = "getaudiolink"
+	}
+	params := url.Values{}
+	params.Set("fileid", strconv.FormatInt(fileID, 10))
+	var out struct {
+		envelope
+		Hosts []string `json:"hosts"`
+		Path  string   `json:"path"`
+	}
+	if err := c.call(ctx, method, params, &out); err != nil {
+		return "", err
+	}
+	if len(out.Hosts) == 0 || out.Path == "" {
+		return "", fmt.Errorf("pcloud %s: empty hosts or path in response", method)
+	}
+	return buildDownloadURL(out.Hosts[0], out.Path)
 }
 
 // CreateUploadLink creates a public, anonymous upload link that lets anyone

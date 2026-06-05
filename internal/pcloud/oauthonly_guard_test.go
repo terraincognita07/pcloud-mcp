@@ -15,16 +15,23 @@ import (
 // getdigest (with a passworddigest).
 //
 // This guard is deliberately airtight, not clean: a false positive (e.g. a
-// future share-link "password" that is NOT an auth flow) is acceptable and must
-// be resolved by a human narrowing this list on purpose. A false negative — a
+// share-link "password" that is NOT an auth flow) is acceptable and must be
+// resolved by a human narrowing this list on purpose. A false negative — a
 // password flow slipping in unnoticed — is not acceptable.
+//
+// The bare token "password" was deliberately removed once pcloud_share_file /
+// pcloud_share_folder gained pCloud's link-password feature (the API param is
+// "linkpassword"), which is a public-link option, not an account login. A real
+// username/password auth flow is still caught here: it cannot exist without one
+// of getauth / userauth / getdigest / passworddigest, and it needs a username.
+// The non-vacuous guard test plants exactly such a flow and still trips on
+// getauth + username.
 var forbiddenAuthTokens = []string{
 	"getauth",
 	"getdigest",
 	"passworddigest",
 	"userauth",
 	"username",
-	"password",
 }
 
 // scanForForbiddenAuthTokens walks root and returns a finding ("token in relpath")

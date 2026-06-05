@@ -7,26 +7,15 @@
 // before the call is approved.
 //
 // Tools are methods on Server so they can be unit-tested directly with an
-// httptest-backed pcloud.Client, without standing up an MCP transport.
+// httptest-backed pcloud.Client, without standing up an MCP transport. The
+// handlers are grouped by domain across the tools_*.go files; this file holds
+// the registration, the shared result shapes, and the small shared helpers.
 package mcpserver
 
 import (
-	"bytes"
-	"context"
-	"errors"
-	"fmt"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"unicode/utf8"
-
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/terraincognita07/pcloud-mcp/internal/download"
 	"github.com/terraincognita07/pcloud-mcp/internal/pcloud"
-	"github.com/terraincognita07/pcloud-mcp/internal/safepath"
 )
 
 // Server holds the dependencies shared by every tool handler.
@@ -106,6 +95,30 @@ func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
 	}, s.ListTrash)
 
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_list_shares",
+		Description: "List folder shares with other pCloud users: established shares and pending requests, each split into incoming (shared with you) and outgoing (you shared out), with the other party's email, folder, and permissions. Read-only.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
+	}, s.ListShares)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_list_revisions",
+		Description: "List the saved revisions (version history) of a file by file_id: revision id, size, hash, and creation time. Read-only.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
+	}, s.ListRevisions)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_get_zip_link",
+		Description: "Get a temporary URL to download a folder (and all its contents) as a single zip archive. Read-only; the zip is built by pCloud.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
+	}, s.GetZipLink)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_get_media_link",
+		Description: "Get a temporary streaming URL for a video or audio file by file_id (set audio=true for audio). Read-only.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
+	}, s.GetMediaLink)
+
 	if mode == ModeLocal {
 		mcp.AddTool(m, &mcp.Tool{
 			Name:        "pcloud_download_file",
@@ -176,9 +189,15 @@ func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_share_file",
-		Description: "Create a public share link for a pCloud file. Anyone with the link can access the file, so confirm intent before sharing.",
+		Description: "Create a public share link for a pCloud file. Anyone with the link can access the file, so confirm intent before sharing. Optional: expire_date, password, max_downloads. Returns link_id (revoke with pcloud_delete_link).",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
 	}, s.ShareFile)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_share_folder",
+		Description: "Create a public share link for an entire pCloud folder. Anyone with the link can browse and download the folder, so confirm intent. Optional: expire_date, password, max_downloads. Returns link_id (revoke with pcloud_delete_link).",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.ShareFolder)
 
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_delete_link",
@@ -197,11 +216,48 @@ func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 		Description: "Create a public upload link for a pCloud folder. ANYONE with the returned URL can upload files into that folder without signing in — useful for collecting files from a phone or another person. Confirm intent before creating; it opens an unauthenticated write path into the account.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
 	}, s.CreateUploadLink)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_list_upload_links",
+		Description: "List the account's existing upload links (created by create_upload_link): each link's id, URL, target folder, comment, and number of files received. Use pcloud_delete_upload_link to close one. Read-only.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
+	}, s.ListUploadLinks)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_delete_upload_link",
+		Description: "Delete an upload link by upload_link_id (from pcloud_list_upload_links), closing that anonymous write path. Files already uploaded through it are untouched.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.DeleteUploadLink)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_share_folder_with_user",
+		Description: "Share a pCloud folder with ANOTHER pCloud user by email, granting them access to your data. Read access is always granted; set can_create/can_modify/can_delete for write access. Outward-facing — confirm intent. Manage with pcloud_list_shares / pcloud_remove_share.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.ShareFolderWithUser)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_remove_share",
+		Description: "Revoke a folder share (or pending request) by share_id (from pcloud_list_shares), removing that user's access.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.RemoveShare)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_revert_revision",
+		Description: "Revert a file to an earlier revision by file_id + revision_id (from pcloud_list_revisions). Reversible: the current content becomes a new revision.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.RevertRevision)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_upload_from_url",
+		Description: "Have pCloud fetch a remote URL directly into a folder (folder_id 0 = root). The bytes go from the source straight to pCloud, never through this server — so it works in HTTP mode too. Outward-facing (fetches an external URL into your account) — confirm intent. Returns the new file(s).",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.UploadFromURL)
 }
 
-// --- Shared output shapes ---
+// --- shared result shapes ---
 
-// Entry is a compact view of one folder child.
+// Entry is a compact view of one folder child (or a file produced by an
+// operation that returns a single item).
 type Entry struct {
 	Name        string `json:"name"`
 	ID          int64  `json:"id"` // folderid for folders, fileid for files
@@ -210,707 +266,55 @@ type Entry struct {
 	ContentType string `json:"content_type,omitempty"`
 }
 
-// --- list_folder ---
+// DeleteResult acknowledges a delete/revoke that returns no payload.
+type DeleteResult struct {
+	Deleted bool `json:"deleted"`
+}
+
+// OKResult is a minimal success acknowledgement for tools with no payload.
+type OKResult struct {
+	OK bool `json:"ok"`
+}
+
+// LinkResult carries a single resolved URL.
+type LinkResult struct {
+	Link string `json:"link"`
+}
+
+// --- shared paging ---
 
 // Listing limits keep a single response bounded so a large folder cannot
 // overflow the client's context window. pCloud returns the whole folder in one
-// call, so the page is sliced server-side here.
+// call, so the page is sliced server-side.
 const (
 	defaultListLimit = 200
 	maxListLimit     = 1000
 )
 
-type ListFolderInput struct {
-	FolderID int64 `json:"folder_id" jsonschema:"pCloud folder id; use 0 for the account root"`
-	Offset   int   `json:"offset,omitempty" jsonschema:"number of entries to skip, for paging through a large folder; default 0"`
-	Limit    int   `json:"limit,omitempty" jsonschema:"max entries to return; default 200, max 1000. Large folders are paged: read next_offset/has_more and call again to continue"`
-}
-
-type ListFolderOutput struct {
-	FolderID   int64   `json:"folder_id"`
-	Name       string  `json:"name"`
-	Entries    []Entry `json:"entries"`
-	Total      int     `json:"total"`                 // total children in the folder
-	Offset     int     `json:"offset"`                // offset of the first returned entry
-	HasMore    bool    `json:"has_more"`              // true if more entries remain past this page
-	NextOffset int     `json:"next_offset,omitempty"` // offset to pass next to continue paging
-}
-
-func (s *Server) ListFolder(ctx context.Context, _ *mcp.CallToolRequest, in ListFolderInput) (*mcp.CallToolResult, ListFolderOutput, error) {
-	md, err := s.client.ListFolder(ctx, in.FolderID, false)
-	if err != nil {
-		return nil, ListFolderOutput{}, err
-	}
-
-	limit := in.Limit
+// paginate clamps offset/limit against total and returns the [start,end) window
+// to slice, plus whether more remains and the offset to continue from. A
+// non-positive limit defaults to defaultListLimit; it is capped at maxListLimit.
+func paginate(total, offset, limit int) (start, end int, hasMore bool, nextOffset int) {
 	if limit <= 0 {
 		limit = defaultListLimit
 	}
 	if limit > maxListLimit {
 		limit = maxListLimit
 	}
-	total := len(md.Contents)
-	start := in.Offset
+	start = offset
 	if start < 0 {
 		start = 0
 	}
 	if start > total {
 		start = total
 	}
-	end := start + limit
+	end = start + limit
 	if end > total {
 		end = total
 	}
-
-	out := ListFolderOutput{FolderID: in.FolderID, Name: md.Name, Total: total, Offset: start}
-	for _, c := range md.Contents[start:end] {
-		e := Entry{Name: c.Name, IsFolder: c.IsFolder}
-		if c.IsFolder {
-			e.ID = c.FolderID
-		} else {
-			e.ID = c.FileID
-			e.Size = c.Size
-			e.ContentType = c.ContentType
-		}
-		out.Entries = append(out.Entries, e)
-	}
 	if end < total {
-		out.HasMore = true
-		out.NextOffset = end
+		hasMore = true
+		nextOffset = end
 	}
-	return nil, out, nil
-}
-
-// --- get_thumbnail ---
-
-// Thumbnail limits. The size is bounded so a request cannot ask pCloud for a
-// huge render, and the fetched bytes are capped so an unexpectedly large body
-// cannot blow the response/context budget.
-const (
-	defaultThumbSize = "256x256"
-	minThumbDim      = 16
-	maxThumbDim      = 1024
-	maxThumbBytes    = 8 << 20 // 8 MiB; real thumbnails are far smaller
-)
-
-type GetThumbnailInput struct {
-	FileID int64  `json:"file_id" jsonschema:"pCloud file id of an image or video (from pcloud_list_folder)"`
-	Size   string `json:"size,omitempty" jsonschema:"thumbnail size as WIDTHxHEIGHT, e.g. 256x256; default 256x256, each dimension 16..1024"`
-}
-
-type ThumbnailOutput struct {
-	FileID int64  `json:"file_id"`
-	Size   string `json:"size"`
-	Bytes  int64  `json:"bytes"`
-}
-
-func (s *Server) GetThumbnail(ctx context.Context, _ *mcp.CallToolRequest, in GetThumbnailInput) (*mcp.CallToolResult, ThumbnailOutput, error) {
-	size, err := normalizeThumbSize(in.Size)
-	if err != nil {
-		return nil, ThumbnailOutput{}, err
-	}
-	link, err := s.client.GetThumbLink(ctx, in.FileID, size)
-	if err != nil {
-		return nil, ThumbnailOutput{}, err
-	}
-	var buf bytes.Buffer
-	n, err := s.client.Download(ctx, link, &cappedWriter{w: &buf, max: maxThumbBytes})
-	if err != nil {
-		return nil, ThumbnailOutput{}, err
-	}
-	result := &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.ImageContent{Data: buf.Bytes(), MIMEType: "image/jpeg"}},
-	}
-	return result, ThumbnailOutput{FileID: in.FileID, Size: size, Bytes: n}, nil
-}
-
-// normalizeThumbSize validates a "WIDTHxHEIGHT" thumbnail size and returns it in
-// canonical form. An empty size defaults to defaultThumbSize.
-func normalizeThumbSize(size string) (string, error) {
-	if size == "" {
-		return defaultThumbSize, nil
-	}
-	w, h, ok := strings.Cut(size, "x")
-	if !ok {
-		return "", fmt.Errorf("size %q must be WIDTHxHEIGHT, e.g. 256x256", size)
-	}
-	wi, err1 := strconv.Atoi(w)
-	hi, err2 := strconv.Atoi(h)
-	if err1 != nil || err2 != nil || wi < minThumbDim || hi < minThumbDim || wi > maxThumbDim || hi > maxThumbDim {
-		return "", fmt.Errorf("size %q out of range; each dimension must be %d..%d", size, minThumbDim, maxThumbDim)
-	}
-	return strconv.Itoa(wi) + "x" + strconv.Itoa(hi), nil
-}
-
-// errCapExceeded is returned by cappedWriter when a body grows past its limit,
-// so callers can distinguish "too big" (fall back to a link) from a transfer
-// error (surface it).
-var errCapExceeded = errors.New("size cap exceeded")
-
-// cappedWriter fails the copy if more than max bytes are written, so an
-// unexpectedly large body errors out instead of being silently truncated.
-type cappedWriter struct {
-	w   *bytes.Buffer
-	n   int64
-	max int64
-}
-
-func (c *cappedWriter) Write(p []byte) (int, error) {
-	if c.n+int64(len(p)) > c.max {
-		return 0, errCapExceeded
-	}
-	c.n += int64(len(p))
-	return c.w.Write(p)
-}
-
-// --- read_file ---
-
-// Read limits keep an inline response bounded. A file over the cap (or a binary
-// the model can't render) comes back as a temporary download link instead of
-// bytes, so reading a large file never overflows the context.
-const (
-	defaultReadCap = 5 << 20  // 5 MiB
-	maxReadCap     = 10 << 20 // 10 MiB
-)
-
-type ReadFileInput struct {
-	FileID   int64 `json:"file_id" jsonschema:"pCloud file id to read (from pcloud_list_folder)"`
-	MaxBytes int   `json:"max_bytes,omitempty" jsonschema:"max bytes to pull inline; default 5MiB, hard max 10MiB. A larger file returns a temporary download link instead of content"`
-}
-
-type ReadFileOutput struct {
-	FileID      int64  `json:"file_id"`
-	Kind        string `json:"kind"` // "text", "image", or "link"
-	ContentType string `json:"content_type,omitempty"`
-	Bytes       int64  `json:"bytes,omitempty"`
-	Link        string `json:"link,omitempty"` // set when kind == "link"
-}
-
-func (s *Server) ReadFile(ctx context.Context, _ *mcp.CallToolRequest, in ReadFileInput) (*mcp.CallToolResult, ReadFileOutput, error) {
-	limit := in.MaxBytes
-	if limit <= 0 {
-		limit = defaultReadCap
-	}
-	if limit > maxReadCap {
-		limit = maxReadCap
-	}
-
-	link, err := s.client.GetFileLink(ctx, in.FileID, false)
-	if err != nil {
-		return nil, ReadFileOutput{}, err
-	}
-	var buf bytes.Buffer
-	if _, err := s.client.Download(ctx, link, &cappedWriter{w: &buf, max: int64(limit)}); err != nil {
-		if errors.Is(err, errCapExceeded) {
-			// Too big to inline → hand back the (working) temporary link.
-			return nil, ReadFileOutput{FileID: in.FileID, Kind: "link", Link: link}, nil
-		}
-		return nil, ReadFileOutput{}, err
-	}
-
-	data := buf.Bytes()
-	ct := http.DetectContentType(data)
-	mime := strings.SplitN(ct, ";", 2)[0]
-	switch {
-	case strings.HasPrefix(ct, "text/") && utf8.Valid(data):
-		res := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(data)}}}
-		return res, ReadFileOutput{FileID: in.FileID, Kind: "text", ContentType: mime, Bytes: int64(len(data))}, nil
-	case isInlineImage(mime):
-		res := &mcp.CallToolResult{Content: []mcp.Content{&mcp.ImageContent{Data: data, MIMEType: mime}}}
-		return res, ReadFileOutput{FileID: in.FileID, Kind: "image", ContentType: mime, Bytes: int64(len(data))}, nil
-	default:
-		// Binary the model can't render inline → link, not raw bytes.
-		return nil, ReadFileOutput{FileID: in.FileID, Kind: "link", ContentType: mime, Bytes: int64(len(data)), Link: link}, nil
-	}
-}
-
-// isInlineImage reports whether ct is an image format the model can view inline.
-func isInlineImage(ct string) bool {
-	switch ct {
-	case "image/jpeg", "image/png", "image/gif", "image/webp":
-		return true
-	}
-	return false
-}
-
-// --- account_info ---
-
-type AccountInfoInput struct{}
-
-type AccountInfoOutput struct {
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"email_verified"`
-	UserID        int64  `json:"user_id"`
-	QuotaBytes    int64  `json:"quota_bytes"`
-	UsedBytes     int64  `json:"used_bytes"`
-	Premium       bool   `json:"premium"`
-}
-
-func (s *Server) AccountInfo(ctx context.Context, _ *mcp.CallToolRequest, _ AccountInfoInput) (*mcp.CallToolResult, AccountInfoOutput, error) {
-	ui, err := s.client.GetUserInfo(ctx)
-	if err != nil {
-		return nil, AccountInfoOutput{}, err
-	}
-	return nil, AccountInfoOutput{
-		Email:         ui.Email,
-		EmailVerified: ui.EmailVerified,
-		UserID:        ui.UserID,
-		QuotaBytes:    ui.Quota,
-		UsedBytes:     ui.UsedQuota,
-		Premium:       ui.Premium,
-	}, nil
-}
-
-// --- file_info ---
-
-type FileInfoInput struct {
-	FileID int64 `json:"file_id" jsonschema:"pCloud file id to inspect (from pcloud_list_folder)"`
-}
-
-type FileInfoOutput struct {
-	FileID      int64  `json:"file_id"`
-	Name        string `json:"name"`
-	Size        int64  `json:"size"`
-	ContentType string `json:"content_type,omitempty"`
-	Created     string `json:"created,omitempty"`
-	Modified    string `json:"modified,omitempty"`
-	SHA256      string `json:"sha256,omitempty"`
-	SHA1        string `json:"sha1,omitempty"`
-	MD5         string `json:"md5,omitempty"`
-}
-
-func (s *Server) FileInfo(ctx context.Context, _ *mcp.CallToolRequest, in FileInfoInput) (*mcp.CallToolResult, FileInfoOutput, error) {
-	cs, err := s.client.ChecksumFile(ctx, in.FileID)
-	if err != nil {
-		return nil, FileInfoOutput{}, err
-	}
-	m := cs.Metadata
-	return nil, FileInfoOutput{
-		FileID:      m.FileID,
-		Name:        m.Name,
-		Size:        m.Size,
-		ContentType: m.ContentType,
-		Created:     m.Created,
-		Modified:    m.Modified,
-		SHA256:      cs.SHA256,
-		SHA1:        cs.SHA1,
-		MD5:         cs.MD5,
-	}, nil
-}
-
-// --- copy_file / copy_folder ---
-
-type CopyFileInput struct {
-	FileID     int64  `json:"file_id" jsonschema:"pCloud file id to copy"`
-	ToFolderID int64  `json:"to_folder_id" jsonschema:"destination folder id; use 0 for the account root"`
-	NewName    string `json:"new_name,omitempty" jsonschema:"optional name for the copy; omit to keep the original name"`
-}
-
-func (s *Server) CopyFile(ctx context.Context, _ *mcp.CallToolRequest, in CopyFileInput) (*mcp.CallToolResult, Entry, error) {
-	md, err := s.client.CopyFile(ctx, in.FileID, in.ToFolderID, in.NewName)
-	if err != nil {
-		return nil, Entry{}, err
-	}
-	return nil, Entry{Name: md.Name, ID: md.FileID, IsFolder: false, Size: md.Size, ContentType: md.ContentType}, nil
-}
-
-type CopyFolderInput struct {
-	FolderID   int64  `json:"folder_id" jsonschema:"pCloud folder id to copy (with all its contents)"`
-	ToFolderID int64  `json:"to_folder_id" jsonschema:"destination folder id; use 0 for the account root"`
-	NewName    string `json:"new_name,omitempty" jsonschema:"optional name for the copy; omit to keep the original name"`
-}
-
-func (s *Server) CopyFolder(ctx context.Context, _ *mcp.CallToolRequest, in CopyFolderInput) (*mcp.CallToolResult, Entry, error) {
-	md, err := s.client.CopyFolder(ctx, in.FolderID, in.ToFolderID, in.NewName)
-	if err != nil {
-		return nil, Entry{}, err
-	}
-	return nil, Entry{Name: md.Name, ID: md.FolderID, IsFolder: true}, nil
-}
-
-// --- list_links / delete_link ---
-
-type ListLinksInput struct{}
-
-type LinkInfo struct {
-	LinkID    int64  `json:"link_id"`
-	Link      string `json:"link"`
-	Name      string `json:"name"`
-	FileID    int64  `json:"file_id,omitempty"`
-	FolderID  int64  `json:"folder_id,omitempty"`
-	IsFolder  bool   `json:"is_folder"`
-	Downloads int64  `json:"downloads"`
-	Created   string `json:"created,omitempty"`
-}
-
-type ListLinksOutput struct {
-	Links []LinkInfo `json:"links"`
-	Total int        `json:"total"`
-}
-
-func (s *Server) ListLinks(ctx context.Context, _ *mcp.CallToolRequest, _ ListLinksInput) (*mcp.CallToolResult, ListLinksOutput, error) {
-	pls, err := s.client.ListPubLinks(ctx)
-	if err != nil {
-		return nil, ListLinksOutput{}, err
-	}
-	out := ListLinksOutput{Total: len(pls)}
-	for _, p := range pls {
-		li := LinkInfo{
-			LinkID:    p.LinkID,
-			Link:      p.Link,
-			Name:      p.Metadata.Name,
-			IsFolder:  p.Metadata.IsFolder,
-			Downloads: p.Downloads,
-			Created:   p.Created,
-		}
-		if p.Metadata.IsFolder {
-			li.FolderID = p.Metadata.FolderID
-		} else {
-			li.FileID = p.Metadata.FileID
-		}
-		out.Links = append(out.Links, li)
-	}
-	return nil, out, nil
-}
-
-type DeleteLinkInput struct {
-	LinkID int64 `json:"link_id" jsonschema:"public link id to revoke (from pcloud_list_links)"`
-}
-
-func (s *Server) DeleteLink(ctx context.Context, _ *mcp.CallToolRequest, in DeleteLinkInput) (*mcp.CallToolResult, DeleteResult, error) {
-	if err := s.client.DeletePubLink(ctx, in.LinkID); err != nil {
-		return nil, DeleteResult{}, err
-	}
-	return nil, DeleteResult{Deleted: true}, nil
-}
-
-// --- list_trash / restore_from_trash ---
-
-type ListTrashInput struct {
-	FolderID int64 `json:"folder_id,omitempty" jsonschema:"Trash subfolder id; 0 = Trash root"`
-	Offset   int   `json:"offset,omitempty" jsonschema:"entries to skip, for paging; default 0"`
-	Limit    int   `json:"limit,omitempty" jsonschema:"max entries to return; default 200, max 1000"`
-}
-
-type TrashEntry struct {
-	Name               string `json:"name"`
-	ID                 int64  `json:"id"`
-	IsFolder           bool   `json:"is_folder"`
-	OrigParentFolderID int64  `json:"orig_parent_folder_id,omitempty"`
-}
-
-type ListTrashOutput struct {
-	Entries    []TrashEntry `json:"entries"`
-	Total      int          `json:"total"`
-	Offset     int          `json:"offset"`
-	HasMore    bool         `json:"has_more"`
-	NextOffset int          `json:"next_offset,omitempty"`
-}
-
-func (s *Server) ListTrash(ctx context.Context, _ *mcp.CallToolRequest, in ListTrashInput) (*mcp.CallToolResult, ListTrashOutput, error) {
-	md, err := s.client.TrashList(ctx, in.FolderID, false)
-	if err != nil {
-		return nil, ListTrashOutput{}, err
-	}
-	limit := in.Limit
-	if limit <= 0 {
-		limit = defaultListLimit
-	}
-	if limit > maxListLimit {
-		limit = maxListLimit
-	}
-	total := len(md.Contents)
-	start := in.Offset
-	if start < 0 {
-		start = 0
-	}
-	if start > total {
-		start = total
-	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
-	out := ListTrashOutput{Total: total, Offset: start}
-	for _, c := range md.Contents[start:end] {
-		e := TrashEntry{Name: c.Name, IsFolder: c.IsFolder, OrigParentFolderID: c.OrigParentFolderID}
-		if c.IsFolder {
-			e.ID = c.FolderID
-		} else {
-			e.ID = c.FileID
-		}
-		out.Entries = append(out.Entries, e)
-	}
-	if end < total {
-		out.HasMore = true
-		out.NextOffset = end
-	}
-	return nil, out, nil
-}
-
-type RestoreFromTrashInput struct {
-	FileID    int64 `json:"file_id,omitempty" jsonschema:"file id to restore (from pcloud_list_trash); set this or folder_id"`
-	FolderID  int64 `json:"folder_id,omitempty" jsonschema:"folder id to restore (from pcloud_list_trash); set this or file_id"`
-	RestoreTo int64 `json:"restore_to,omitempty" jsonschema:"optional destination folder id; omit to restore to the original location"`
-}
-
-func (s *Server) RestoreFromTrash(ctx context.Context, _ *mcp.CallToolRequest, in RestoreFromTrashInput) (*mcp.CallToolResult, Entry, error) {
-	if in.FileID == 0 && in.FolderID == 0 {
-		return nil, Entry{}, fmt.Errorf("file_id or folder_id is required")
-	}
-	md, err := s.client.TrashRestore(ctx, in.FileID, in.FolderID, in.RestoreTo)
-	if err != nil {
-		return nil, Entry{}, err
-	}
-	e := Entry{Name: md.Name, IsFolder: md.IsFolder}
-	if md.IsFolder {
-		e.ID = md.FolderID
-	} else {
-		e.ID = md.FileID
-		e.Size = md.Size
-		e.ContentType = md.ContentType
-	}
-	return nil, e, nil
-}
-
-// --- download_file ---
-
-type DownloadFileInput struct {
-	FileID      int64  `json:"file_id" jsonschema:"pCloud file id to download (from pcloud_list_folder)"`
-	Name        string `json:"name" jsonschema:"the file's name (from pcloud_list_folder); used as the local filename"`
-	Destination string `json:"destination" jsonschema:"absolute local directory to save the file into"`
-}
-
-type DownloadResult struct {
-	Files int    `json:"files"`
-	Bytes int64  `json:"bytes"`
-	Path  string `json:"path"`
-}
-
-func (s *Server) DownloadFile(ctx context.Context, _ *mcp.CallToolRequest, in DownloadFileInput) (*mcp.CallToolResult, DownloadResult, error) {
-	if in.Destination == "" {
-		return nil, DownloadResult{}, fmt.Errorf("destination directory is required")
-	}
-	d := download.New(s.client, in.Destination)
-	stats, err := d.File(ctx, &pcloud.Metadata{Name: in.Name, FileID: in.FileID})
-	if err != nil {
-		return nil, DownloadResult{}, err
-	}
-	// safepath already validated Name; rebuilding the path here is display-only.
-	return nil, DownloadResult{Files: stats.Files, Bytes: stats.Bytes, Path: filepath.Join(in.Destination, in.Name)}, nil
-}
-
-// --- download_folder ---
-
-type DownloadFolderInput struct {
-	FolderID    int64  `json:"folder_id" jsonschema:"pCloud folder id to download (from pcloud_list_folder)"`
-	Name        string `json:"name" jsonschema:"the folder's name (from pcloud_list_folder); the tree is mirrored under destination/<name>"`
-	Destination string `json:"destination" jsonschema:"absolute local directory to mirror the folder into"`
-}
-
-func (s *Server) DownloadFolder(ctx context.Context, _ *mcp.CallToolRequest, in DownloadFolderInput) (*mcp.CallToolResult, DownloadResult, error) {
-	if in.Destination == "" {
-		return nil, DownloadResult{}, fmt.Errorf("destination directory is required")
-	}
-	// Name is attacker-influenced (it comes from a pCloud listing), so it must
-	// pass safepath before being joined onto the trusted destination.
-	if _, err := safepath.SafeName(in.Name); err != nil {
-		return nil, DownloadResult{}, err
-	}
-	base := filepath.Join(in.Destination, in.Name)
-
-	tree, err := s.client.ListFolder(ctx, in.FolderID, true)
-	if err != nil {
-		return nil, DownloadResult{}, err
-	}
-	d := download.New(s.client, base)
-	stats, err := d.Folder(ctx, tree)
-	if err != nil {
-		return nil, DownloadResult{}, err
-	}
-	return nil, DownloadResult{Files: stats.Files, Bytes: stats.Bytes, Path: base}, nil
-}
-
-// --- upload_file ---
-
-type UploadFileInput struct {
-	LocalPath string `json:"local_path" jsonschema:"absolute path to the local file to upload"`
-	FolderID  int64  `json:"folder_id" jsonschema:"destination pCloud folder id; use 0 for the account root"`
-	Name      string `json:"name,omitempty" jsonschema:"optional name to store the file as; defaults to the local file name"`
-}
-
-type UploadResult struct {
-	FileID int64  `json:"file_id"`
-	Name   string `json:"name"`
-	Size   int64  `json:"size"`
-}
-
-func (s *Server) UploadFile(ctx context.Context, _ *mcp.CallToolRequest, in UploadFileInput) (*mcp.CallToolResult, UploadResult, error) {
-	if in.LocalPath == "" {
-		return nil, UploadResult{}, fmt.Errorf("local_path is required")
-	}
-	name := in.Name
-	if name == "" {
-		name = filepath.Base(in.LocalPath)
-	}
-	f, err := os.Open(in.LocalPath)
-	if err != nil {
-		return nil, UploadResult{}, fmt.Errorf("open local file: %w", err)
-	}
-	defer f.Close()
-
-	md, err := s.client.UploadFile(ctx, in.FolderID, name, f)
-	if err != nil {
-		return nil, UploadResult{}, err
-	}
-	return nil, UploadResult{FileID: md.FileID, Name: md.Name, Size: md.Size}, nil
-}
-
-// --- create_folder ---
-
-type CreateFolderInput struct {
-	ParentID int64  `json:"parent_id" jsonschema:"parent pCloud folder id; use 0 for the account root"`
-	Name     string `json:"name" jsonschema:"name of the new folder"`
-}
-
-type FolderResult struct {
-	FolderID int64  `json:"folder_id"`
-	Name     string `json:"name"`
-}
-
-func (s *Server) CreateFolder(ctx context.Context, _ *mcp.CallToolRequest, in CreateFolderInput) (*mcp.CallToolResult, FolderResult, error) {
-	if in.Name == "" {
-		return nil, FolderResult{}, fmt.Errorf("folder name is required")
-	}
-	md, err := s.client.CreateFolder(ctx, in.ParentID, in.Name)
-	if err != nil {
-		return nil, FolderResult{}, err
-	}
-	return nil, FolderResult{FolderID: md.FolderID, Name: md.Name}, nil
-}
-
-// --- delete_file ---
-
-type DeleteFileInput struct {
-	FileID int64 `json:"file_id" jsonschema:"pCloud file id to delete (moved to pCloud's time-limited Trash)"`
-}
-
-type DeleteResult struct {
-	Deleted bool `json:"deleted"`
-}
-
-func (s *Server) DeleteFile(ctx context.Context, _ *mcp.CallToolRequest, in DeleteFileInput) (*mcp.CallToolResult, DeleteResult, error) {
-	if err := s.client.DeleteFile(ctx, in.FileID); err != nil {
-		return nil, DeleteResult{}, err
-	}
-	return nil, DeleteResult{Deleted: true}, nil
-}
-
-// --- delete_folder ---
-
-type DeleteFolderInput struct {
-	FolderID int64 `json:"folder_id" jsonschema:"pCloud folder id to delete, including all contents (moved to pCloud's time-limited Trash)"`
-}
-
-func (s *Server) DeleteFolder(ctx context.Context, _ *mcp.CallToolRequest, in DeleteFolderInput) (*mcp.CallToolResult, DeleteResult, error) {
-	if err := s.client.DeleteFolderRecursive(ctx, in.FolderID); err != nil {
-		return nil, DeleteResult{}, err
-	}
-	return nil, DeleteResult{Deleted: true}, nil
-}
-
-// --- move_file ---
-
-type MoveFileInput struct {
-	FileID     int64  `json:"file_id" jsonschema:"pCloud file id to rename and/or move"`
-	ToFolderID int64  `json:"to_folder_id,omitempty" jsonschema:"destination folder id; omit or 0 to keep in place"`
-	NewName    string `json:"new_name,omitempty" jsonschema:"new name; omit to keep the current name"`
-}
-
-func (s *Server) MoveFile(ctx context.Context, _ *mcp.CallToolRequest, in MoveFileInput) (*mcp.CallToolResult, Entry, error) {
-	if in.ToFolderID == 0 && in.NewName == "" {
-		return nil, Entry{}, fmt.Errorf("provide new_name, to_folder_id, or both")
-	}
-	md, err := s.client.RenameFile(ctx, in.FileID, in.ToFolderID, in.NewName)
-	if err != nil {
-		return nil, Entry{}, err
-	}
-	return nil, Entry{Name: md.Name, ID: md.FileID, IsFolder: false, Size: md.Size, ContentType: md.ContentType}, nil
-}
-
-// --- move_folder ---
-
-type MoveFolderInput struct {
-	FolderID   int64  `json:"folder_id" jsonschema:"pCloud folder id to rename and/or move"`
-	ToFolderID int64  `json:"to_folder_id,omitempty" jsonschema:"destination parent folder id; omit or 0 to keep in place"`
-	NewName    string `json:"new_name,omitempty" jsonschema:"new name; omit to keep the current name"`
-}
-
-func (s *Server) MoveFolder(ctx context.Context, _ *mcp.CallToolRequest, in MoveFolderInput) (*mcp.CallToolResult, Entry, error) {
-	if in.ToFolderID == 0 && in.NewName == "" {
-		return nil, Entry{}, fmt.Errorf("provide new_name, to_folder_id, or both")
-	}
-	md, err := s.client.RenameFolder(ctx, in.FolderID, in.ToFolderID, in.NewName)
-	if err != nil {
-		return nil, Entry{}, err
-	}
-	return nil, Entry{Name: md.Name, ID: md.FolderID, IsFolder: true}, nil
-}
-
-// --- share_file ---
-
-type ShareFileInput struct {
-	FileID int64 `json:"file_id" jsonschema:"pCloud file id to create a public link for"`
-}
-
-type ShareResult struct {
-	Link string `json:"link"`
-}
-
-func (s *Server) ShareFile(ctx context.Context, _ *mcp.CallToolRequest, in ShareFileInput) (*mcp.CallToolResult, ShareResult, error) {
-	link, err := s.client.GetFilePubLink(ctx, in.FileID)
-	if err != nil {
-		return nil, ShareResult{}, err
-	}
-	return nil, ShareResult{Link: link}, nil
-}
-
-// --- save_text ---
-
-type SaveTextInput struct {
-	FolderID int64  `json:"folder_id" jsonschema:"destination pCloud folder id; use 0 for the account root"`
-	Name     string `json:"name" jsonschema:"file name to create, e.g. note.md"`
-	Content  string `json:"content" jsonschema:"the text content to write into the file"`
-}
-
-func (s *Server) SaveText(ctx context.Context, _ *mcp.CallToolRequest, in SaveTextInput) (*mcp.CallToolResult, UploadResult, error) {
-	// The name becomes a pCloud filename; validate it as a single safe component
-	// so it cannot smuggle a path ("../x") or separator into the upload.
-	if _, err := safepath.SafeName(in.Name); err != nil {
-		return nil, UploadResult{}, err
-	}
-	md, err := s.client.UploadFile(ctx, in.FolderID, in.Name, strings.NewReader(in.Content))
-	if err != nil {
-		return nil, UploadResult{}, err
-	}
-	return nil, UploadResult{FileID: md.FileID, Name: md.Name, Size: md.Size}, nil
-}
-
-// --- create_upload_link ---
-
-type CreateUploadLinkInput struct {
-	FolderID int64  `json:"folder_id" jsonschema:"pCloud folder id that uploads will land in; use 0 for the account root"`
-	Comment  string `json:"comment,omitempty" jsonschema:"optional note shown to whoever opens the upload page"`
-}
-
-func (s *Server) CreateUploadLink(ctx context.Context, _ *mcp.CallToolRequest, in CreateUploadLinkInput) (*mcp.CallToolResult, ShareResult, error) {
-	comment := in.Comment
-	if comment == "" {
-		comment = "Upload files here" // pCloud requires a non-empty comment
-	}
-	link, err := s.client.CreateUploadLink(ctx, in.FolderID, comment)
-	if err != nil {
-		return nil, ShareResult{}, err
-	}
-	return nil, ShareResult{Link: link}, nil
+	return start, end, hasMore, nextOffset
 }

@@ -342,6 +342,207 @@ func TestRestoreFromTrash_RequiresID(t *testing.T) {
 	}
 }
 
+func TestShareFolder(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/getfolderpublink") {
+			t.Errorf("endpoint = %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"link":"https://e.pcloud.link/F","linkid":9}`)
+	})
+	_, out, err := s.ShareFolder(context.Background(), nil, ShareFolderInput{FolderID: 3})
+	if err != nil {
+		t.Fatalf("ShareFolder: %v", err)
+	}
+	if !strings.Contains(out.Link, "pcloud.link") || out.LinkID != 9 {
+		t.Errorf("share folder result = %+v", out)
+	}
+}
+
+func TestListUploadLinks(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"result":0,"uploadlinks":[
+			{"uploadlinkid":4,"link":"https://e.pcloud.link/U","comment":"drop","files":2,"metadata":{"name":"Inbox","folderid":3,"isfolder":true}}
+		]}`)
+	})
+	_, out, err := s.ListUploadLinks(context.Background(), nil, ListUploadLinksInput{})
+	if err != nil {
+		t.Fatalf("ListUploadLinks: %v", err)
+	}
+	if out.Total != 1 || len(out.Links) != 1 {
+		t.Fatalf("links = %+v", out)
+	}
+	l := out.Links[0]
+	if l.UploadLinkID != 4 || l.FolderName != "Inbox" || l.FolderID != 3 || l.Files != 2 {
+		t.Errorf("upload link info = %+v", l)
+	}
+}
+
+func TestDeleteUploadLink(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/deleteuploadlink") {
+			t.Errorf("endpoint = %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0}`)
+	})
+	_, out, err := s.DeleteUploadLink(context.Background(), nil, DeleteUploadLinkInput{UploadLinkID: 4})
+	if err != nil {
+		t.Fatalf("DeleteUploadLink: %v", err)
+	}
+	if !out.Deleted {
+		t.Error("expected Deleted=true")
+	}
+}
+
+func TestShareFolderWithUser(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if !strings.HasSuffix(r.URL.Path, "/sharefolder") || r.PostForm.Get("permissions") != "6" || r.PostForm.Get("mail") != "x@y.z" {
+			t.Errorf("endpoint/params wrong: %s %v", r.URL.Path, r.PostForm)
+		}
+		io.WriteString(w, `{"result":0}`)
+	})
+	_, out, err := s.ShareFolderWithUser(context.Background(), nil, ShareFolderWithUserInput{FolderID: 5, Email: "x@y.z", CanModify: true, CanDelete: true})
+	if err != nil {
+		t.Fatalf("ShareFolderWithUser: %v", err)
+	}
+	if !out.OK {
+		t.Error("expected OK=true")
+	}
+}
+
+func TestShareFolderWithUser_RequiresEmail(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("must not call API without an email")
+	})
+	if _, _, err := s.ShareFolderWithUser(context.Background(), nil, ShareFolderWithUserInput{FolderID: 5}); err == nil {
+		t.Error("expected error when email is missing")
+	}
+}
+
+func TestListShares(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"result":0,"shares":{"outgoing":[
+			{"shareid":7,"folderid":5,"sharename":"Docs","tomail":"x@y.z","canread":true,"canmodify":true}
+		],"incoming":[]},"requests":{"incoming":[],"outgoing":[]}}`)
+	})
+	_, out, err := s.ListShares(context.Background(), nil, ListSharesInput{})
+	if err != nil {
+		t.Fatalf("ListShares: %v", err)
+	}
+	if len(out.OutgoingShares) != 1 {
+		t.Fatalf("outgoing = %+v", out.OutgoingShares)
+	}
+	e := out.OutgoingShares[0]
+	if e.ShareID != 7 || e.Email != "x@y.z" || e.Permissions != "read,modify" {
+		t.Errorf("share entry = %+v", e)
+	}
+}
+
+func TestRemoveShare(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/removeshare") {
+			t.Errorf("endpoint = %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0}`)
+	})
+	_, out, err := s.RemoveShare(context.Background(), nil, RemoveShareInput{ShareID: 7})
+	if err != nil {
+		t.Fatalf("RemoveShare: %v", err)
+	}
+	if !out.Deleted {
+		t.Error("expected Deleted=true")
+	}
+}
+
+func TestListRevisions(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"result":0,"revisions":[{"revisionid":101,"size":50,"hash":"abc","created":"2026-01-01"}]}`)
+	})
+	_, out, err := s.ListRevisions(context.Background(), nil, ListRevisionsInput{FileID: 9})
+	if err != nil {
+		t.Fatalf("ListRevisions: %v", err)
+	}
+	if out.Total != 1 || out.Revisions[0].RevisionID != 101 || out.Revisions[0].Hash != "abc" {
+		t.Errorf("revisions = %+v", out)
+	}
+}
+
+func TestRevertRevision(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/revertrevision") {
+			t.Errorf("endpoint = %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"f.txt","fileid":9,"size":50}}`)
+	})
+	_, out, err := s.RevertRevision(context.Background(), nil, RevertRevisionInput{FileID: 9, RevisionID: 101})
+	if err != nil {
+		t.Fatalf("RevertRevision: %v", err)
+	}
+	if out.ID != 9 || out.Name != "f.txt" {
+		t.Errorf("reverted entry = %+v", out)
+	}
+}
+
+func TestGetZipLink(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getziplink"):
+			io.WriteString(w, `{"result":0,"hosts":["cdn"],"path":"/z/a.zip"}`)
+		default:
+			t.Errorf("unexpected %s", r.URL.Path)
+		}
+	})
+	_, out, err := s.GetZipLink(context.Background(), nil, GetZipLinkInput{FolderID: 3})
+	if err != nil {
+		t.Fatalf("GetZipLink: %v", err)
+	}
+	if !strings.HasSuffix(out.Link, "/z/a.zip") {
+		t.Errorf("zip link = %q", out.Link)
+	}
+}
+
+func TestUploadFromURL(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if !strings.HasSuffix(r.URL.Path, "/downloadfile") || r.PostForm.Get("url") != "https://x/y.jpg" {
+			t.Errorf("endpoint/param wrong: %s %v", r.URL.Path, r.PostForm)
+		}
+		io.WriteString(w, `{"result":0,"metadata":[{"name":"y.jpg","fileid":12,"size":9}]}`)
+	})
+	_, out, err := s.UploadFromURL(context.Background(), nil, UploadFromURLInput{URL: "https://x/y.jpg", FolderID: 3})
+	if err != nil {
+		t.Fatalf("UploadFromURL: %v", err)
+	}
+	if len(out.Files) != 1 || out.Files[0].ID != 12 {
+		t.Errorf("files = %+v", out.Files)
+	}
+}
+
+func TestUploadFromURL_RequiresURL(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("must not call API without a url")
+	})
+	if _, _, err := s.UploadFromURL(context.Background(), nil, UploadFromURLInput{FolderID: 3}); err == nil {
+		t.Error("expected error when url is missing")
+	}
+}
+
+func TestGetMediaLink(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/getvideolink") {
+			t.Errorf("endpoint = %s; want getvideolink", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"hosts":["cdn"],"path":"/v/clip.mp4"}`)
+	})
+	_, out, err := s.GetMediaLink(context.Background(), nil, GetMediaLinkInput{FileID: 9})
+	if err != nil {
+		t.Fatalf("GetMediaLink: %v", err)
+	}
+	if !strings.HasSuffix(out.Link, "/v/clip.mp4") {
+		t.Errorf("media link = %q", out.Link)
+	}
+}
+
 func TestDownloadFile(t *testing.T) {
 	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {

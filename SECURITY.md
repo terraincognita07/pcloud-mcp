@@ -38,11 +38,21 @@ Each row has a regression test that reproduces the original attack (see `*_test.
 These are not bugs in this server; they are properties of the MCP trust model. Documented so operators
 can reason about them:
 
-- **Prompt injection via downloaded content.** If the agent downloads a file containing instructions
-  and then acts on them, that is the *host's* trust boundary. This server validates *paths and
-  arguments*, not file *content*. Keep destructive-tool confirmation enabled in your host.
-- **The host approves tool calls.** Destructive tools are annotated, but enforcement of "ask the user
-  before deleting" lives in the MCP host (e.g. Claude's permission prompt), not here.
+- **Prompt injection via file content.** If the agent reads a file containing instructions and then
+  acts on them, that is the *host's* trust boundary. This server validates *paths and arguments*, not
+  file *content*. This surface exists in **HTTP (remote) mode too**: `pcloud_read_file` and
+  `pcloud_get_thumbnail` return file content/previews inline, so a maliciously-named or maliciously-
+  authored shared file can carry instructions into the model even when the local-disk tools are hidden.
+- **Outward-facing tools grant external access.** `pcloud_share_file`, `pcloud_share_folder`,
+  `pcloud_share_folder_with_user`, `pcloud_create_upload_link` and `pcloud_upload_from_url` are
+  *additive* (so they are not marked `DestructiveHint` — that would be untruthful) yet they expose data
+  or open a write path to people outside your account: a `share_folder_with_user` to an attacker's
+  email is a quiet, persistent exfiltration. Injection (above) plus an ungated outward call is a real
+  chain. These tools advertise `OpenWorldHint` and say "confirm intent" in their descriptions — **keep
+  host confirmation enabled for sharing, not only for delete.**
+- **The host approves tool calls.** Destructive and outward-facing tools are annotated, but enforcing
+  "ask the user before deleting or sharing" lives in the MCP host (e.g. Claude's permission prompt),
+  not here.
 - **Token scope.** A pCloud OAuth token is full-account. Treat the credentials file as a secret; revoke
   the app authorization in pCloud settings to invalidate it.
 - **No per-file size cap.** A download mirrors whatever the remote tree contains; a hostile share could

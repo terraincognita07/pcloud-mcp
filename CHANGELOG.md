@@ -3,9 +3,20 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] — 2026-06-05
 
 ### Added
+- `pcloud_share_folder_with_user` / `pcloud_list_shares` / `pcloud_remove_share` — share a folder with
+  another pCloud user by email (read or read/write via can_create/can_modify/can_delete), list shares
+  and pending requests (incoming/outgoing), and revoke access.
+- `pcloud_list_revisions` / `pcloud_revert_revision` — list a file's version history and revert to an
+  earlier revision (reversible — the current content becomes a new revision).
+- `pcloud_get_zip_link` — temporary link to download a folder and its contents as one zip.
+- `pcloud_upload_from_url` — have pCloud fetch a remote URL straight into a folder (bytes never pass
+  through this server, so it works in HTTP mode).
+- `pcloud_get_media_link` — temporary streaming URL for a video or audio file.
+- `pcloud_share_folder` — create a public link to a whole folder (not just a file).
+- `pcloud_list_upload_links` / `pcloud_delete_upload_link` — list and remove the account's upload links.
 - `pcloud_list_links` / `pcloud_delete_link` — list the account's existing public links and revoke one
   by id (the shared file/folder itself is untouched). Gives a direct undo for `share_file`.
 - `pcloud_list_trash` / `pcloud_restore_from_trash` — list items in pCloud's Trash (paged; each entry
@@ -30,6 +41,21 @@ All notable changes to this project are documented here. Format loosely follows
 - `pcloud_list_folder` now pages: optional `offset`/`limit` (default 200, max 1000) and returns
   `total`/`has_more`/`next_offset`, so a large folder no longer overflows the client's context.
   Backward-compatible — the defaults leave small-folder behavior unchanged.
+- `pcloud_share_file` gains optional `expire_date` / `password` / `max_downloads` and now returns
+  `link_id` (revoke via `pcloud_delete_link`). Backward-compatible — the new inputs are optional.
+
+### Security
+- Red-team follow-up: documented the expanded prompt-injection surface (`read_file`/`get_thumbnail`
+  ingest file content inline, including in HTTP mode) and the outward-facing tools that grant external
+  access (`share_*`, `share_folder_with_user`, `create_upload_link`, `upload_from_url`) in SECURITY.md
+  "Known limitations". These stay *additive* (not `DestructiveHint` — that would be untruthful), but a
+  new regression test (`TestIntegration_OutwardToolsNotHarmless`) locks them as non-`ReadOnlyHint` +
+  `OpenWorldHint` so a host can never silently auto-run them as a harmless read.
+- Narrowed the OAuth-only guard (`TestOAuthOnly_NoPasswordFlow`): removed the bare `"password"` token
+  so pCloud's link-password option (`linkpassword`, used by `share_file`/`share_folder`) no longer
+  false-positives. A real username/password login is still blocked — it cannot exist without
+  `getauth`/`userauth`/`getdigest`/`passworddigest`, and the guard still trips on `username`. The
+  non-vacuous guard test (a planted `getauth?username=…&password=…`) still fails the build.
 
 ## [0.2.1] — 2026-06-05
 

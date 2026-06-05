@@ -65,6 +65,10 @@ func TestIntegration_AllToolsRegistered(t *testing.T) {
 		"pcloud_upload_file", "pcloud_create_folder", "pcloud_delete_file",
 		"pcloud_delete_folder", "pcloud_move_file", "pcloud_move_folder",
 		"pcloud_copy_file", "pcloud_copy_folder", "pcloud_restore_from_trash", "pcloud_delete_link",
+		"pcloud_share_folder", "pcloud_list_upload_links", "pcloud_delete_upload_link",
+		"pcloud_share_folder_with_user", "pcloud_list_shares", "pcloud_remove_share",
+		"pcloud_list_revisions", "pcloud_revert_revision",
+		"pcloud_get_zip_link", "pcloud_upload_from_url", "pcloud_get_media_link",
 		"pcloud_share_file", "pcloud_save_text", "pcloud_create_upload_link",
 	}
 	if len(res.Tools) != len(want) {
@@ -123,6 +127,51 @@ func TestIntegration_DeleteToolMarkedDestructive(t *testing.T) {
 				t.Errorf("%s must carry ReadOnlyHint=true", tool.Name)
 			}
 		}
+	}
+}
+
+// TestIntegration_OutwardToolsNotHarmless locks the truthful annotation of the
+// outward-facing tools that expose data or open a write path outside the account
+// (share/upload links, share-with-user, fetch-from-URL). They are additive, not
+// destructive, so DestructiveHint stays false — but they MUST NOT be ReadOnlyHint
+// and MUST advertise OpenWorldHint, so a host can never silently auto-run them as
+// a harmless read. This is the deterministic guard for the injection->external-
+// share exfiltration chain (SECURITY.md "Outward-facing tools grant external
+// access"): the host still owns confirmation, but the server must not mislabel
+// these as safe.
+func TestIntegration_OutwardToolsNotHarmless(t *testing.T) {
+	cs := connect(t, func(w http.ResponseWriter, r *http.Request) {})
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	outward := map[string]bool{
+		"pcloud_share_file":             true,
+		"pcloud_share_folder":           true,
+		"pcloud_share_folder_with_user": true,
+		"pcloud_create_upload_link":     true,
+		"pcloud_upload_from_url":        true,
+	}
+	seen := 0
+	for _, tool := range res.Tools {
+		if !outward[tool.Name] {
+			continue
+		}
+		seen++
+		a := tool.Annotations
+		if a == nil {
+			t.Errorf("%s: missing annotations", tool.Name)
+			continue
+		}
+		if a.ReadOnlyHint {
+			t.Errorf("%s must NOT be ReadOnlyHint — it grants external access/writes", tool.Name)
+		}
+		if a.OpenWorldHint == nil || !*a.OpenWorldHint {
+			t.Errorf("%s must advertise OpenWorldHint=true (it touches external parties)", tool.Name)
+		}
+	}
+	if seen != len(outward) {
+		t.Errorf("only %d/%d outward tools advertised; the surface changed — update this guard", seen, len(outward))
 	}
 }
 
