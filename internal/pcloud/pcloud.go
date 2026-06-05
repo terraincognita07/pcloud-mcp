@@ -125,18 +125,21 @@ type envelope struct {
 // routinely exceeds math.MaxInt64, so decoding it into int64 fails the whole
 // response (see TestListFolder_LargeUnsignedHash).
 type Metadata struct {
-	Name           string     `json:"name"`
-	Path           string     `json:"path"`
-	IsFolder       bool       `json:"isfolder"`
-	FolderID       int64      `json:"folderid"`
-	FileID         int64      `json:"fileid"`
-	ParentFolderID int64      `json:"parentfolderid"`
-	Size           int64      `json:"size"`
-	ContentType    string     `json:"contenttype"`
-	Hash           uint64     `json:"hash"`
-	Created        string     `json:"created"`
-	Modified       string     `json:"modified"`
-	Contents       []Metadata `json:"contents"`
+	Name           string `json:"name"`
+	Path           string `json:"path"`
+	IsFolder       bool   `json:"isfolder"`
+	FolderID       int64  `json:"folderid"`
+	FileID         int64  `json:"fileid"`
+	ParentFolderID int64  `json:"parentfolderid"`
+	// OrigParentFolderID is only set by trash_list: where the item lived before
+	// it was moved to Trash.
+	OrigParentFolderID int64      `json:"origparentfolderid"`
+	Size               int64      `json:"size"`
+	ContentType        string     `json:"contenttype"`
+	Hash               uint64     `json:"hash"`
+	Created            string     `json:"created"`
+	Modified           string     `json:"modified"`
+	Contents           []Metadata `json:"contents"`
 }
 
 // call performs a form-encoded POST to /method with the access token in the
@@ -434,6 +437,168 @@ func (c *Client) RenameFolder(ctx context.Context, folderID, toFolderID int64, n
 		return nil, err
 	}
 	return &out.Metadata, nil
+}
+
+// CopyFile copies fileID into toFolderID (optionally under newName) and returns
+// the new file's metadata. The original is left in place.
+func (c *Client) CopyFile(ctx context.Context, fileID, toFolderID int64, newName string) (*Metadata, error) {
+	params := url.Values{}
+	params.Set("fileid", strconv.FormatInt(fileID, 10))
+	params.Set("tofolderid", strconv.FormatInt(toFolderID, 10))
+	if newName != "" {
+		params.Set("toname", newName)
+	}
+	var out struct {
+		envelope
+		Metadata Metadata `json:"metadata"`
+	}
+	if err := c.call(ctx, "copyfile", params, &out); err != nil {
+		return nil, err
+	}
+	return &out.Metadata, nil
+}
+
+// CopyFolder copies folderID and its contents into toFolderID (optionally under
+// newName) and returns the new folder's metadata. The original is left in place.
+func (c *Client) CopyFolder(ctx context.Context, folderID, toFolderID int64, newName string) (*Metadata, error) {
+	params := url.Values{}
+	params.Set("folderid", strconv.FormatInt(folderID, 10))
+	params.Set("tofolderid", strconv.FormatInt(toFolderID, 10))
+	if newName != "" {
+		params.Set("toname", newName)
+	}
+	var out struct {
+		envelope
+		Metadata Metadata `json:"metadata"`
+	}
+	if err := c.call(ctx, "copyfolder", params, &out); err != nil {
+		return nil, err
+	}
+	return &out.Metadata, nil
+}
+
+// UserInfo holds the account fields returned by userinfo.
+type UserInfo struct {
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"emailverified"`
+	UserID        int64  `json:"userid"`
+	Quota         int64  `json:"quota"`
+	UsedQuota     int64  `json:"usedquota"`
+	Premium       bool   `json:"premium"`
+}
+
+// GetUserInfo returns account information (email, storage quota and usage) for
+// the authenticated user.
+func (c *Client) GetUserInfo(ctx context.Context) (*UserInfo, error) {
+	var out struct {
+		envelope
+		UserInfo
+	}
+	if err := c.call(ctx, "userinfo", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out.UserInfo, nil
+}
+
+// FileChecksums holds a file's metadata and content hashes from checksumfile.
+// Which hashes are populated depends on the account's storage region.
+type FileChecksums struct {
+	Metadata Metadata
+	SHA1     string
+	SHA256   string
+	MD5      string
+}
+
+// ChecksumFile returns metadata and content hashes for fileID without
+// downloading it.
+func (c *Client) ChecksumFile(ctx context.Context, fileID int64) (*FileChecksums, error) {
+	params := url.Values{}
+	params.Set("fileid", strconv.FormatInt(fileID, 10))
+	var out struct {
+		envelope
+		Metadata Metadata `json:"metadata"`
+		SHA1     string   `json:"sha1"`
+		SHA256   string   `json:"sha256"`
+		MD5      string   `json:"md5"`
+	}
+	if err := c.call(ctx, "checksumfile", params, &out); err != nil {
+		return nil, err
+	}
+	return &FileChecksums{Metadata: out.Metadata, SHA1: out.SHA1, SHA256: out.SHA256, MD5: out.MD5}, nil
+}
+
+// TrashList lists the contents of the Trash (folderID 0 = Trash root). The
+// returned metadata mirrors ListFolder; each child also carries
+// OrigParentFolderID — where it lived before deletion.
+func (c *Client) TrashList(ctx context.Context, folderID int64, recursive bool) (*Metadata, error) {
+	params := url.Values{}
+	params.Set("folderid", strconv.FormatInt(folderID, 10))
+	if recursive {
+		params.Set("recursive", "1")
+	}
+	var out struct {
+		envelope
+		Metadata Metadata `json:"metadata"`
+	}
+	if err := c.call(ctx, "trash_list", params, &out); err != nil {
+		return nil, err
+	}
+	return &out.Metadata, nil
+}
+
+// TrashRestore restores a file or folder from the Trash and returns its
+// metadata. Exactly one of fileID/folderID must be non-zero; restoreTo, if
+// non-zero, overrides the original location.
+func (c *Client) TrashRestore(ctx context.Context, fileID, folderID, restoreTo int64) (*Metadata, error) {
+	params := url.Values{}
+	if fileID != 0 {
+		params.Set("fileid", strconv.FormatInt(fileID, 10))
+	}
+	if folderID != 0 {
+		params.Set("folderid", strconv.FormatInt(folderID, 10))
+	}
+	if restoreTo != 0 {
+		params.Set("restoreto", strconv.FormatInt(restoreTo, 10))
+	}
+	var out struct {
+		envelope
+		Metadata Metadata `json:"metadata"`
+	}
+	if err := c.call(ctx, "trash_restore", params, &out); err != nil {
+		return nil, err
+	}
+	return &out.Metadata, nil
+}
+
+// PubLink is one existing public link returned by ListPubLinks.
+type PubLink struct {
+	LinkID    int64    `json:"linkid"`
+	Code      string   `json:"code"`
+	Link      string   `json:"link"`
+	Downloads int64    `json:"downloads"`
+	Traffic   int64    `json:"traffic"`
+	Created   string   `json:"created"`
+	Modified  string   `json:"modified"`
+	Metadata  Metadata `json:"metadata"`
+}
+
+// ListPubLinks returns the account's existing public links.
+func (c *Client) ListPubLinks(ctx context.Context) ([]PubLink, error) {
+	var out struct {
+		envelope
+		PubLinks []PubLink `json:"publinks"`
+	}
+	if err := c.call(ctx, "listpublinks", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.PubLinks, nil
+}
+
+// DeletePubLink deletes the public link with linkID, revoking access through it.
+func (c *Client) DeletePubLink(ctx context.Context, linkID int64) error {
+	params := url.Values{}
+	params.Set("linkid", strconv.FormatInt(linkID, 10))
+	return c.call(ctx, "deletepublink", params, nil)
 }
 
 // GetFilePubLink creates a public share link for fileID and returns the link

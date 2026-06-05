@@ -61,9 +61,10 @@ func TestIntegration_AllToolsRegistered(t *testing.T) {
 		got[tool.Name] = true
 	}
 	want := []string{
-		"pcloud_list_folder", "pcloud_get_thumbnail", "pcloud_read_file", "pcloud_download_file", "pcloud_download_folder",
+		"pcloud_list_folder", "pcloud_get_thumbnail", "pcloud_read_file", "pcloud_account_info", "pcloud_file_info", "pcloud_list_links", "pcloud_list_trash", "pcloud_download_file", "pcloud_download_folder",
 		"pcloud_upload_file", "pcloud_create_folder", "pcloud_delete_file",
 		"pcloud_delete_folder", "pcloud_move_file", "pcloud_move_folder",
+		"pcloud_copy_file", "pcloud_copy_folder", "pcloud_restore_from_trash", "pcloud_delete_link",
 		"pcloud_share_file", "pcloud_save_text", "pcloud_create_upload_link",
 	}
 	if len(res.Tools) != len(want) {

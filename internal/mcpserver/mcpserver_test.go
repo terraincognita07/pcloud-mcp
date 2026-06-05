@@ -202,6 +202,146 @@ func TestReadFile_TooLargeReturnsLink(t *testing.T) {
 	}
 }
 
+func TestAccountInfo(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"result":0,"email":"u@x.io","emailverified":true,"userid":1,"quota":100,"usedquota":40,"premium":false}`)
+	})
+	_, out, err := s.AccountInfo(context.Background(), nil, AccountInfoInput{})
+	if err != nil {
+		t.Fatalf("AccountInfo: %v", err)
+	}
+	if out.Email != "u@x.io" || out.QuotaBytes != 100 || out.UsedBytes != 40 || !out.EmailVerified {
+		t.Errorf("account info = %+v", out)
+	}
+}
+
+func TestFileInfo(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"result":0,"sha256":"deadbeef","metadata":{"name":"r.jpg","fileid":7,"size":2048,"contenttype":"image/jpeg"}}`)
+	})
+	_, out, err := s.FileInfo(context.Background(), nil, FileInfoInput{FileID: 7})
+	if err != nil {
+		t.Fatalf("FileInfo: %v", err)
+	}
+	if out.FileID != 7 || out.Name != "r.jpg" || out.Size != 2048 || out.ContentType != "image/jpeg" || out.SHA256 != "deadbeef" {
+		t.Errorf("file info = %+v", out)
+	}
+}
+
+func TestCopyFile(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/copyfile") {
+			t.Errorf("endpoint = %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"c.txt","fileid":99,"size":5,"isfolder":false}}`)
+	})
+	_, out, err := s.CopyFile(context.Background(), nil, CopyFileInput{FileID: 5, ToFolderID: 9})
+	if err != nil {
+		t.Fatalf("CopyFile: %v", err)
+	}
+	if out.ID != 99 || out.IsFolder || out.Name != "c.txt" {
+		t.Errorf("copy file entry = %+v", out)
+	}
+}
+
+func TestCopyFolder(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/copyfolder") {
+			t.Errorf("endpoint = %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"D2","folderid":111,"isfolder":true}}`)
+	})
+	_, out, err := s.CopyFolder(context.Background(), nil, CopyFolderInput{FolderID: 1, ToFolderID: 0, NewName: "D2"})
+	if err != nil {
+		t.Fatalf("CopyFolder: %v", err)
+	}
+	if out.ID != 111 || !out.IsFolder || out.Name != "D2" {
+		t.Errorf("copy folder entry = %+v", out)
+	}
+}
+
+func TestListLinks(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"result":0,"publinks":[
+			{"linkid":55,"link":"https://e.pcloud.link/x","downloads":4,"metadata":{"name":"shared.pdf","fileid":9,"isfolder":false}}
+		]}`)
+	})
+	_, out, err := s.ListLinks(context.Background(), nil, ListLinksInput{})
+	if err != nil {
+		t.Fatalf("ListLinks: %v", err)
+	}
+	if out.Total != 1 || len(out.Links) != 1 {
+		t.Fatalf("links = %+v", out)
+	}
+	l := out.Links[0]
+	if l.LinkID != 55 || l.Name != "shared.pdf" || l.FileID != 9 || l.Downloads != 4 {
+		t.Errorf("link info = %+v", l)
+	}
+}
+
+func TestDeleteLink(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/deletepublink") {
+			t.Errorf("endpoint = %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0}`)
+	})
+	_, out, err := s.DeleteLink(context.Background(), nil, DeleteLinkInput{LinkID: 55})
+	if err != nil {
+		t.Fatalf("DeleteLink: %v", err)
+	}
+	if !out.Deleted {
+		t.Error("expected Deleted=true")
+	}
+}
+
+func TestListTrash(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/trash_list") {
+			t.Errorf("endpoint = %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"Trash","folderid":0,"isfolder":true,"contents":[
+			{"name":"a","isfolder":false,"fileid":1,"origparentfolderid":12},
+			{"name":"b","isfolder":false,"fileid":2}
+		]}}`)
+	})
+	_, out, err := s.ListTrash(context.Background(), nil, ListTrashInput{FolderID: 0, Limit: 1})
+	if err != nil {
+		t.Fatalf("ListTrash: %v", err)
+	}
+	if out.Total != 2 || len(out.Entries) != 1 || out.Entries[0].OrigParentFolderID != 12 {
+		t.Fatalf("trash page = %+v", out)
+	}
+	if !out.HasMore || out.NextOffset != 1 {
+		t.Errorf("expected has_more next=1, got %v %d", out.HasMore, out.NextOffset)
+	}
+}
+
+func TestRestoreFromTrash(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/trash_restore") {
+			t.Errorf("endpoint = %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"a","fileid":1,"size":3,"isfolder":false}}`)
+	})
+	_, out, err := s.RestoreFromTrash(context.Background(), nil, RestoreFromTrashInput{FileID: 1})
+	if err != nil {
+		t.Fatalf("RestoreFromTrash: %v", err)
+	}
+	if out.ID != 1 || out.IsFolder || out.Name != "a" {
+		t.Errorf("restored entry = %+v", out)
+	}
+}
+
+func TestRestoreFromTrash_RequiresID(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("must not call API without file_id or folder_id")
+	})
+	if _, _, err := s.RestoreFromTrash(context.Background(), nil, RestoreFromTrashInput{}); err == nil {
+		t.Error("expected error when neither file_id nor folder_id is set")
+	}
+}
+
 func TestDownloadFile(t *testing.T) {
 	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {

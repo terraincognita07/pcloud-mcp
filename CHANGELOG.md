@@ -6,6 +6,16 @@ All notable changes to this project are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- `pcloud_list_links` / `pcloud_delete_link` — list the account's existing public links and revoke one
+  by id (the shared file/folder itself is untouched). Gives a direct undo for `share_file`.
+- `pcloud_list_trash` / `pcloud_restore_from_trash` — list items in pCloud's Trash (paged; each entry
+  shows where it lived before deletion) and restore a file or folder, to its original spot or a chosen
+  folder. No permanent-delete tool is exposed, so every deletion stays recoverable.
+- `pcloud_account_info` — account email, storage quota and used space, premium status (read-only).
+- `pcloud_file_info` — one file's metadata (size, content type, dates) and content hashes
+  (sha256/sha1/md5, region-dependent) without downloading it (read-only).
+- `pcloud_copy_file` / `pcloud_copy_folder` — copy a file or folder (with contents) into another
+  folder, optionally under a new name; the original is left in place.
 - `pcloud_read_file` — read a file by `file_id` and return its content inline: text as text, viewable
   images (JPEG/PNG/GIF/WebP) as an image. Oversized files (over `max_bytes`, default 5 MiB, max 10 MiB)
   and non-text/non-image binaries return a temporary download link instead, so a large file never

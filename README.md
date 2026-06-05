@@ -45,8 +45,9 @@ It works two ways: **locally** through Claude Desktop (files land on your comput
 
 ## Features
 
-- **14 tools** covering the full account: browse, image/video thumbnails, read file content, download, upload, save text,
-  create/move/rename/delete folders and files, public share links, and public upload links — see
+- **22 tools** covering the full account: browse, image/video thumbnails, read file content, account/file
+  info, download, upload, save text, create/copy/move/rename/delete folders and files, public share &
+  upload links (list and revoke them), and Trash (list and restore) — see
   [What you can do](#what-you-can-do) above and the [Tools](#tools) table below.
 - **Path-traversal–proof downloads** — pCloud folder names are attacker-influenced (a shared folder
   may be named `..`), so every remote name is validated *and* every write goes through an `os.Root`
@@ -176,15 +177,23 @@ is in [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 | `pcloud_list_folder` | read-only | List a folder's contents (`folder_id` 0 = root); paged (`offset`/`limit`) so large folders don't overflow the context. |
 | `pcloud_get_thumbnail` | read-only | Return a small JPEG preview of an image/video inline (works for BMP etc.) — for cheap visual scanning/identification. |
 | `pcloud_read_file` | read-only | Return a file's content inline — text as text, viewable images as image; oversized/binary files return a temporary link. |
+| `pcloud_account_info` | read-only | Account email, storage quota and used space, premium status. |
+| `pcloud_file_info` | read-only | One file's metadata (size, type, dates) and content hashes, without downloading. |
+| `pcloud_list_links` | read-only | List existing public links (target, URL, downloads). |
+| `pcloud_list_trash` | read-only | List items in Trash (paged); shows where each lived before deletion. |
 | `pcloud_download_file` | additive | Download one file to a local directory. |
 | `pcloud_download_folder` | additive | Mirror a folder tree locally (traversal-checked). |
 | `pcloud_upload_file` | additive | Upload a local file into a folder. |
 | `pcloud_create_folder` | additive | Create a folder. |
 | `pcloud_move_file` | additive | Rename and/or move a file. |
 | `pcloud_move_folder` | additive | Rename and/or move a folder. |
+| `pcloud_copy_file` | additive | Copy a file into another folder (original left in place). |
+| `pcloud_copy_folder` | additive | Copy a folder and its contents into another folder (original left in place). |
+| `pcloud_restore_from_trash` | additive | Restore a file/folder from Trash, to its original spot or a chosen folder. |
 | `pcloud_share_file` | additive | Create a public share link to a file (download from anywhere, incl. phone). |
 | `pcloud_save_text` | additive | Write text straight into a new pCloud file — no local file needed. |
 | `pcloud_create_upload_link` | additive | Public upload link: collect files into a folder from a phone/another person. |
+| `pcloud_delete_link` | additive | Revoke a public link by id (the shared file/folder is untouched). |
 | `pcloud_delete_file` | **destructive** | Delete a file (moved to pCloud's time-limited Trash). |
 | `pcloud_delete_folder` | **destructive** | Delete a folder and all its contents recursively (moved to pCloud's time-limited Trash). |
 

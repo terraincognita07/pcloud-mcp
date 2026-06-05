@@ -82,6 +82,30 @@ func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
 	}, s.ReadFile)
 
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_account_info",
+		Description: "Return account information for the authenticated pCloud user: email (and whether it's verified), storage quota and used space in bytes, and premium status. Read-only.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
+	}, s.AccountInfo)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_file_info",
+		Description: "Return metadata for one pCloud file by file_id without downloading it: name, size, content type, created/modified time, and content hashes (sha256/sha1/md5, where the account's region provides them). Read-only.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
+	}, s.FileInfo)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_list_links",
+		Description: "List the account's existing public links (created by share_file / create_upload_link): each link's id, URL, the target's name, and download count. Use pcloud_delete_link to revoke one. Read-only.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
+	}, s.ListLinks)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_list_trash",
+		Description: "List items in pCloud's Trash (folder_id 0 = Trash root). Paged like list_folder (offset/limit). Each entry shows orig_parent_folder_id — where it lived before deletion. Read-only.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
+	}, s.ListTrash)
+
 	if mode == ModeLocal {
 		mcp.AddTool(m, &mcp.Tool{
 			Name:        "pcloud_download_file",
@@ -133,10 +157,34 @@ func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 	}, s.MoveFolder)
 
 	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_copy_file",
+		Description: "Copy a pCloud file into another folder (to_folder_id 0 = root), optionally under new_name. The original is left in place; returns the new file.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.CopyFile)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_copy_folder",
+		Description: "Copy a pCloud folder and all its contents into another folder (to_folder_id 0 = root), optionally under new_name. The original is left in place; returns the new folder.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.CopyFolder)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_restore_from_trash",
+		Description: "Restore a file or folder from pCloud's Trash by file_id OR folder_id (from pcloud_list_trash). Optionally restore_to a different folder; omit to put it back where it was.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.RestoreFromTrash)
+
+	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_share_file",
 		Description: "Create a public share link for a pCloud file. Anyone with the link can access the file, so confirm intent before sharing.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
 	}, s.ShareFile)
+
+	mcp.AddTool(m, &mcp.Tool{
+		Name:        "pcloud_delete_link",
+		Description: "Revoke a public link by link_id (from pcloud_list_links) so the URL stops working. This tightens access — the shared file/folder itself is untouched.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
+	}, s.DeleteLink)
 
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_save_text",
@@ -383,6 +431,246 @@ func isInlineImage(ct string) bool {
 		return true
 	}
 	return false
+}
+
+// --- account_info ---
+
+type AccountInfoInput struct{}
+
+type AccountInfoOutput struct {
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"email_verified"`
+	UserID        int64  `json:"user_id"`
+	QuotaBytes    int64  `json:"quota_bytes"`
+	UsedBytes     int64  `json:"used_bytes"`
+	Premium       bool   `json:"premium"`
+}
+
+func (s *Server) AccountInfo(ctx context.Context, _ *mcp.CallToolRequest, _ AccountInfoInput) (*mcp.CallToolResult, AccountInfoOutput, error) {
+	ui, err := s.client.GetUserInfo(ctx)
+	if err != nil {
+		return nil, AccountInfoOutput{}, err
+	}
+	return nil, AccountInfoOutput{
+		Email:         ui.Email,
+		EmailVerified: ui.EmailVerified,
+		UserID:        ui.UserID,
+		QuotaBytes:    ui.Quota,
+		UsedBytes:     ui.UsedQuota,
+		Premium:       ui.Premium,
+	}, nil
+}
+
+// --- file_info ---
+
+type FileInfoInput struct {
+	FileID int64 `json:"file_id" jsonschema:"pCloud file id to inspect (from pcloud_list_folder)"`
+}
+
+type FileInfoOutput struct {
+	FileID      int64  `json:"file_id"`
+	Name        string `json:"name"`
+	Size        int64  `json:"size"`
+	ContentType string `json:"content_type,omitempty"`
+	Created     string `json:"created,omitempty"`
+	Modified    string `json:"modified,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+	SHA1        string `json:"sha1,omitempty"`
+	MD5         string `json:"md5,omitempty"`
+}
+
+func (s *Server) FileInfo(ctx context.Context, _ *mcp.CallToolRequest, in FileInfoInput) (*mcp.CallToolResult, FileInfoOutput, error) {
+	cs, err := s.client.ChecksumFile(ctx, in.FileID)
+	if err != nil {
+		return nil, FileInfoOutput{}, err
+	}
+	m := cs.Metadata
+	return nil, FileInfoOutput{
+		FileID:      m.FileID,
+		Name:        m.Name,
+		Size:        m.Size,
+		ContentType: m.ContentType,
+		Created:     m.Created,
+		Modified:    m.Modified,
+		SHA256:      cs.SHA256,
+		SHA1:        cs.SHA1,
+		MD5:         cs.MD5,
+	}, nil
+}
+
+// --- copy_file / copy_folder ---
+
+type CopyFileInput struct {
+	FileID     int64  `json:"file_id" jsonschema:"pCloud file id to copy"`
+	ToFolderID int64  `json:"to_folder_id" jsonschema:"destination folder id; use 0 for the account root"`
+	NewName    string `json:"new_name,omitempty" jsonschema:"optional name for the copy; omit to keep the original name"`
+}
+
+func (s *Server) CopyFile(ctx context.Context, _ *mcp.CallToolRequest, in CopyFileInput) (*mcp.CallToolResult, Entry, error) {
+	md, err := s.client.CopyFile(ctx, in.FileID, in.ToFolderID, in.NewName)
+	if err != nil {
+		return nil, Entry{}, err
+	}
+	return nil, Entry{Name: md.Name, ID: md.FileID, IsFolder: false, Size: md.Size, ContentType: md.ContentType}, nil
+}
+
+type CopyFolderInput struct {
+	FolderID   int64  `json:"folder_id" jsonschema:"pCloud folder id to copy (with all its contents)"`
+	ToFolderID int64  `json:"to_folder_id" jsonschema:"destination folder id; use 0 for the account root"`
+	NewName    string `json:"new_name,omitempty" jsonschema:"optional name for the copy; omit to keep the original name"`
+}
+
+func (s *Server) CopyFolder(ctx context.Context, _ *mcp.CallToolRequest, in CopyFolderInput) (*mcp.CallToolResult, Entry, error) {
+	md, err := s.client.CopyFolder(ctx, in.FolderID, in.ToFolderID, in.NewName)
+	if err != nil {
+		return nil, Entry{}, err
+	}
+	return nil, Entry{Name: md.Name, ID: md.FolderID, IsFolder: true}, nil
+}
+
+// --- list_links / delete_link ---
+
+type ListLinksInput struct{}
+
+type LinkInfo struct {
+	LinkID    int64  `json:"link_id"`
+	Link      string `json:"link"`
+	Name      string `json:"name"`
+	FileID    int64  `json:"file_id,omitempty"`
+	FolderID  int64  `json:"folder_id,omitempty"`
+	IsFolder  bool   `json:"is_folder"`
+	Downloads int64  `json:"downloads"`
+	Created   string `json:"created,omitempty"`
+}
+
+type ListLinksOutput struct {
+	Links []LinkInfo `json:"links"`
+	Total int        `json:"total"`
+}
+
+func (s *Server) ListLinks(ctx context.Context, _ *mcp.CallToolRequest, _ ListLinksInput) (*mcp.CallToolResult, ListLinksOutput, error) {
+	pls, err := s.client.ListPubLinks(ctx)
+	if err != nil {
+		return nil, ListLinksOutput{}, err
+	}
+	out := ListLinksOutput{Total: len(pls)}
+	for _, p := range pls {
+		li := LinkInfo{
+			LinkID:    p.LinkID,
+			Link:      p.Link,
+			Name:      p.Metadata.Name,
+			IsFolder:  p.Metadata.IsFolder,
+			Downloads: p.Downloads,
+			Created:   p.Created,
+		}
+		if p.Metadata.IsFolder {
+			li.FolderID = p.Metadata.FolderID
+		} else {
+			li.FileID = p.Metadata.FileID
+		}
+		out.Links = append(out.Links, li)
+	}
+	return nil, out, nil
+}
+
+type DeleteLinkInput struct {
+	LinkID int64 `json:"link_id" jsonschema:"public link id to revoke (from pcloud_list_links)"`
+}
+
+func (s *Server) DeleteLink(ctx context.Context, _ *mcp.CallToolRequest, in DeleteLinkInput) (*mcp.CallToolResult, DeleteResult, error) {
+	if err := s.client.DeletePubLink(ctx, in.LinkID); err != nil {
+		return nil, DeleteResult{}, err
+	}
+	return nil, DeleteResult{Deleted: true}, nil
+}
+
+// --- list_trash / restore_from_trash ---
+
+type ListTrashInput struct {
+	FolderID int64 `json:"folder_id,omitempty" jsonschema:"Trash subfolder id; 0 = Trash root"`
+	Offset   int   `json:"offset,omitempty" jsonschema:"entries to skip, for paging; default 0"`
+	Limit    int   `json:"limit,omitempty" jsonschema:"max entries to return; default 200, max 1000"`
+}
+
+type TrashEntry struct {
+	Name               string `json:"name"`
+	ID                 int64  `json:"id"`
+	IsFolder           bool   `json:"is_folder"`
+	OrigParentFolderID int64  `json:"orig_parent_folder_id,omitempty"`
+}
+
+type ListTrashOutput struct {
+	Entries    []TrashEntry `json:"entries"`
+	Total      int          `json:"total"`
+	Offset     int          `json:"offset"`
+	HasMore    bool         `json:"has_more"`
+	NextOffset int          `json:"next_offset,omitempty"`
+}
+
+func (s *Server) ListTrash(ctx context.Context, _ *mcp.CallToolRequest, in ListTrashInput) (*mcp.CallToolResult, ListTrashOutput, error) {
+	md, err := s.client.TrashList(ctx, in.FolderID, false)
+	if err != nil {
+		return nil, ListTrashOutput{}, err
+	}
+	limit := in.Limit
+	if limit <= 0 {
+		limit = defaultListLimit
+	}
+	if limit > maxListLimit {
+		limit = maxListLimit
+	}
+	total := len(md.Contents)
+	start := in.Offset
+	if start < 0 {
+		start = 0
+	}
+	if start > total {
+		start = total
+	}
+	end := start + limit
+	if end > total {
+		end = total
+	}
+	out := ListTrashOutput{Total: total, Offset: start}
+	for _, c := range md.Contents[start:end] {
+		e := TrashEntry{Name: c.Name, IsFolder: c.IsFolder, OrigParentFolderID: c.OrigParentFolderID}
+		if c.IsFolder {
+			e.ID = c.FolderID
+		} else {
+			e.ID = c.FileID
+		}
+		out.Entries = append(out.Entries, e)
+	}
+	if end < total {
+		out.HasMore = true
+		out.NextOffset = end
+	}
+	return nil, out, nil
+}
+
+type RestoreFromTrashInput struct {
+	FileID    int64 `json:"file_id,omitempty" jsonschema:"file id to restore (from pcloud_list_trash); set this or folder_id"`
+	FolderID  int64 `json:"folder_id,omitempty" jsonschema:"folder id to restore (from pcloud_list_trash); set this or file_id"`
+	RestoreTo int64 `json:"restore_to,omitempty" jsonschema:"optional destination folder id; omit to restore to the original location"`
+}
+
+func (s *Server) RestoreFromTrash(ctx context.Context, _ *mcp.CallToolRequest, in RestoreFromTrashInput) (*mcp.CallToolResult, Entry, error) {
+	if in.FileID == 0 && in.FolderID == 0 {
+		return nil, Entry{}, fmt.Errorf("file_id or folder_id is required")
+	}
+	md, err := s.client.TrashRestore(ctx, in.FileID, in.FolderID, in.RestoreTo)
+	if err != nil {
+		return nil, Entry{}, err
+	}
+	e := Entry{Name: md.Name, IsFolder: md.IsFolder}
+	if md.IsFolder {
+		e.ID = md.FolderID
+	} else {
+		e.ID = md.FileID
+		e.Size = md.Size
+		e.ContentType = md.ContentType
+	}
+	return nil, e, nil
 }
 
 // --- download_file ---

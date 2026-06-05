@@ -331,6 +331,146 @@ func TestCreateUploadLinkEmptyLinkErrors(t *testing.T) {
 	}
 }
 
+func TestCopyFile(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/copyfile") {
+			t.Errorf("endpoint = %s; want copyfile", r.URL.Path)
+		}
+		_ = r.ParseForm()
+		if r.PostForm.Get("fileid") != "5" || r.PostForm.Get("tofolderid") != "9" {
+			t.Errorf("params: fileid=%q tofolderid=%q", r.PostForm.Get("fileid"), r.PostForm.Get("tofolderid"))
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"copy.txt","fileid":77,"size":3,"isfolder":false}}`)
+	})
+	md, err := c.CopyFile(context.Background(), 5, 9, "")
+	if err != nil {
+		t.Fatalf("CopyFile: %v", err)
+	}
+	if md.FileID != 77 || md.Name != "copy.txt" {
+		t.Errorf("metadata = %+v", md)
+	}
+}
+
+func TestCopyFolder(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/copyfolder") {
+			t.Errorf("endpoint = %s; want copyfolder", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"CopyDir","folderid":88,"isfolder":true}}`)
+	})
+	md, err := c.CopyFolder(context.Background(), 1, 2, "CopyDir")
+	if err != nil {
+		t.Fatalf("CopyFolder: %v", err)
+	}
+	if md.FolderID != 88 || !md.IsFolder {
+		t.Errorf("metadata = %+v", md)
+	}
+}
+
+func TestGetUserInfo(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/userinfo") {
+			t.Errorf("endpoint = %s; want userinfo", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"email":"a@b.c","emailverified":true,"userid":42,"quota":1000,"usedquota":250,"premium":true}`)
+	})
+	ui, err := c.GetUserInfo(context.Background())
+	if err != nil {
+		t.Fatalf("GetUserInfo: %v", err)
+	}
+	if ui.Email != "a@b.c" || ui.Quota != 1000 || ui.UsedQuota != 250 || !ui.Premium || ui.UserID != 42 {
+		t.Errorf("userinfo = %+v", ui)
+	}
+}
+
+func TestChecksumFile(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/checksumfile") {
+			t.Errorf("endpoint = %s; want checksumfile", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"sha256":"abc","sha1":"def","metadata":{"name":"f.bin","fileid":7,"size":12,"contenttype":"application/octet-stream"}}`)
+	})
+	cs, err := c.ChecksumFile(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("ChecksumFile: %v", err)
+	}
+	if cs.SHA256 != "abc" || cs.SHA1 != "def" || cs.Metadata.FileID != 7 || cs.Metadata.Size != 12 {
+		t.Errorf("checksums = %+v", cs)
+	}
+}
+
+func TestTrashList(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/trash_list") {
+			t.Errorf("endpoint = %s; want trash_list", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"Trash","folderid":0,"isfolder":true,"contents":[
+			{"name":"gone.txt","isfolder":false,"fileid":3,"origparentfolderid":12}
+		]}}`)
+	})
+	md, err := c.TrashList(context.Background(), 0, false)
+	if err != nil {
+		t.Fatalf("TrashList: %v", err)
+	}
+	if len(md.Contents) != 1 || md.Contents[0].FileID != 3 || md.Contents[0].OrigParentFolderID != 12 {
+		t.Errorf("trash contents = %+v", md.Contents)
+	}
+}
+
+func TestTrashRestore(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/trash_restore") {
+			t.Errorf("endpoint = %s; want trash_restore", r.URL.Path)
+		}
+		_ = r.ParseForm()
+		if r.PostForm.Get("fileid") != "3" {
+			t.Errorf("fileid = %q; want 3", r.PostForm.Get("fileid"))
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"gone.txt","fileid":3,"size":7,"isfolder":false}}`)
+	})
+	md, err := c.TrashRestore(context.Background(), 3, 0, 0)
+	if err != nil {
+		t.Fatalf("TrashRestore: %v", err)
+	}
+	if md.FileID != 3 || md.Name != "gone.txt" {
+		t.Errorf("restored = %+v", md)
+	}
+}
+
+func TestListPubLinks(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/listpublinks") {
+			t.Errorf("endpoint = %s; want listpublinks", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"publinks":[
+			{"linkid":55,"code":"AB","link":"https://e.pcloud.link/x","downloads":4,"metadata":{"name":"shared.pdf","fileid":9,"isfolder":false}}
+		]}`)
+	})
+	links, err := c.ListPubLinks(context.Background())
+	if err != nil {
+		t.Fatalf("ListPubLinks: %v", err)
+	}
+	if len(links) != 1 || links[0].LinkID != 55 || links[0].Metadata.Name != "shared.pdf" || links[0].Downloads != 4 {
+		t.Errorf("publinks = %+v", links)
+	}
+}
+
+func TestDeletePubLink(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/deletepublink") {
+			t.Errorf("endpoint = %s; want deletepublink", r.URL.Path)
+		}
+		_ = r.ParseForm()
+		if r.PostForm.Get("linkid") != "55" {
+			t.Errorf("linkid = %q; want 55", r.PostForm.Get("linkid"))
+		}
+		io.WriteString(w, `{"result":0}`)
+	})
+	if err := c.DeletePubLink(context.Background(), 55); err != nil {
+		t.Fatalf("DeletePubLink: %v", err)
+	}
+}
+
 func TestExchangeOAuthCode(t *testing.T) {
 	var sawSecretInURL bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
