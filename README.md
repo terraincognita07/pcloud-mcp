@@ -54,7 +54,9 @@ It works two ways: **locally** through Claude Desktop (files land on your comput
 - **OAuth 2.0 only** — loopback callback bound to `127.0.0.1`, CSRF `state` compared in constant time,
   token sent in the POST body (never the URL), stored `0600`, never printed. No password flow.
 - **Destructive operations are flagged** — `delete_file` / `delete_folder` carry the MCP
-  `DestructiveHint` so your host can warn you before a permanent, recursive delete.
+  `DestructiveHint` so your host can warn you before a recursive delete. pCloud routes deletes
+  to its time-limited Trash (plan-dependent recovery window) rather than erasing immediately —
+  treat it as destructive, not as a backup.
 - **Clean supply chain** — `govulncheck`, `staticcheck`, and `gosec` run clean and gate CI; the build
   toolchain is pinned. Zero third-party runtime dependencies beyond the official MCP SDK.
 
@@ -181,8 +183,8 @@ is in [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 | `pcloud_share_file` | additive | Create a public share link to a file (download from anywhere, incl. phone). |
 | `pcloud_save_text` | additive | Write text straight into a new pCloud file — no local file needed. |
 | `pcloud_create_upload_link` | additive | Public upload link: collect files into a folder from a phone/another person. |
-| `pcloud_delete_file` | **destructive** | Permanently delete a file. |
-| `pcloud_delete_folder` | **destructive** | Permanently delete a folder and all its contents. |
+| `pcloud_delete_file` | **destructive** | Delete a file (moved to pCloud's time-limited Trash). |
+| `pcloud_delete_folder` | **destructive** | Delete a folder and all its contents recursively (moved to pCloud's time-limited Trash). |
 
 ## Security
 

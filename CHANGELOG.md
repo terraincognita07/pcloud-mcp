@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses [SemVer](https://semver.org/).
 
+## [0.2.1] — 2026-06-05
+
+### Fixed
+- `pcloud_list_folder`, `pcloud_save_text`, and other metadata-returning calls failed to decode pCloud
+  responses whose `hash` exceeds `math.MaxInt64` (a real, full-range unsigned 64-bit value), aborting the
+  whole response. `Metadata.Hash` is now `uint64`. Regression test `TestListFolder_LargeUnsignedHash`
+  reproduces the original failure. `delete_*` were unaffected (their responses are decoded envelope-only).
+
+### Changed
+- `pcloud_delete_file` / `pcloud_delete_folder` descriptions corrected: pCloud routes deletes to its
+  time-limited Trash (plan-dependent recovery window) rather than erasing immediately, so the prior
+  "permanently delete … cannot be undone" wording overstated irreversibility. The tools remain flagged
+  `DestructiveHint=true`; no behavior change.
+
 ## [0.2.0] — 2026-06-01
 
 ### Added

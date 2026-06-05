@@ -93,13 +93,13 @@ func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_delete_file",
-		Description: "Permanently delete a pCloud file by file_id. This cannot be undone.",
+		Description: "Delete a pCloud file by file_id. pCloud normally moves deleted items to Trash, recoverable for a limited, plan-dependent period before permanent purge; sharing is not restored. Destructive — do not rely on Trash as a backup.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(true)},
 	}, s.DeleteFile)
 
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_delete_folder",
-		Description: "Permanently delete a pCloud folder by folder_id, including ALL of its contents, recursively. This cannot be undone.",
+		Description: "Delete a pCloud folder by folder_id and ALL of its contents, recursively, removing its sharing. Deleted items normally go to pCloud Trash, restorable for a limited, plan-dependent time before permanent purge; do not rely on recovery. Destructive.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(true), OpenWorldHint: boolPtr(true)},
 	}, s.DeleteFolder)
 
@@ -296,7 +296,7 @@ func (s *Server) CreateFolder(ctx context.Context, _ *mcp.CallToolRequest, in Cr
 // --- delete_file ---
 
 type DeleteFileInput struct {
-	FileID int64 `json:"file_id" jsonschema:"pCloud file id to permanently delete"`
+	FileID int64 `json:"file_id" jsonschema:"pCloud file id to delete (moved to pCloud's time-limited Trash)"`
 }
 
 type DeleteResult struct {
@@ -313,7 +313,7 @@ func (s *Server) DeleteFile(ctx context.Context, _ *mcp.CallToolRequest, in Dele
 // --- delete_folder ---
 
 type DeleteFolderInput struct {
-	FolderID int64 `json:"folder_id" jsonschema:"pCloud folder id to permanently delete, including all contents"`
+	FolderID int64 `json:"folder_id" jsonschema:"pCloud folder id to delete, including all contents (moved to pCloud's time-limited Trash)"`
 }
 
 func (s *Server) DeleteFolder(ctx context.Context, _ *mcp.CallToolRequest, in DeleteFolderInput) (*mcp.CallToolResult, DeleteResult, error) {

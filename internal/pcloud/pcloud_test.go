@@ -112,6 +112,36 @@ func TestListFolderRecursiveTree(t *testing.T) {
 	}
 }
 
+// TestListFolder_LargeUnsignedHash reproduces a real production failure: pCloud
+// returns "hash" as a full-range unsigned 64-bit value that can exceed
+// math.MaxInt64 (here 12693041523775600936). When Metadata.Hash was int64, the
+// JSON decoder rejected the value and failed the ENTIRE response, so the folder
+// could not be listed at all. Hash must decode as uint64.
+func TestListFolder_LargeUnsignedHash(t *testing.T) {
+	const bigHash = uint64(12693041523775600936)
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{
+			"result":0,
+			"metadata":{
+				"name":"root","isfolder":true,"folderid":0,
+				"contents":[
+					{"name":"a.txt","isfolder":false,"fileid":10,"size":3,"hash":12693041523775600936}
+				]
+			}
+		}`)
+	})
+	md, err := c.ListFolder(context.Background(), 0, false)
+	if err != nil {
+		t.Fatalf("ListFolder must not fail on an unsigned hash > MaxInt64: %v", err)
+	}
+	if len(md.Contents) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(md.Contents))
+	}
+	if got := md.Contents[0].Hash; got != bigHash {
+		t.Errorf("Hash = %d; want %d", got, bigHash)
+	}
+}
+
 func TestGetFileLinkBuildsURL(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"result":0,"hosts":["c1.pcloud.com","c2.pcloud.com"],"path":"/x/My%20file.jpg"}`)

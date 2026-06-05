@@ -121,6 +121,9 @@ type envelope struct {
 // Metadata describes a file or folder as returned by the API. Numeric IDs are
 // decoded as int64; only the fields the server actually populates for a given
 // kind are non-zero (e.g. FileID/Size for files, FolderID/Contents for folders).
+// Hash is uint64: pCloud returns a full-range unsigned 64-bit file hash that
+// routinely exceeds math.MaxInt64, so decoding it into int64 fails the whole
+// response (see TestListFolder_LargeUnsignedHash).
 type Metadata struct {
 	Name           string     `json:"name"`
 	Path           string     `json:"path"`
@@ -130,7 +133,7 @@ type Metadata struct {
 	ParentFolderID int64      `json:"parentfolderid"`
 	Size           int64      `json:"size"`
 	ContentType    string     `json:"contenttype"`
-	Hash           int64      `json:"hash"`
+	Hash           uint64     `json:"hash"`
 	Created        string     `json:"created"`
 	Modified       string     `json:"modified"`
 	Contents       []Metadata `json:"contents"`
@@ -351,15 +354,18 @@ func (c *Client) CreateFolder(ctx context.Context, parentID int64, name string) 
 	return &out.Metadata, nil
 }
 
-// DeleteFile permanently deletes fileID.
+// DeleteFile deletes fileID. pCloud routes the delete to its Trash, where
+// recovery is time-limited and plan-dependent; the MCP layer gates the call
+// behind explicit user intent.
 func (c *Client) DeleteFile(ctx context.Context, fileID int64) error {
 	params := url.Values{}
 	params.Set("fileid", strconv.FormatInt(fileID, 10))
 	return c.call(ctx, "deletefile", params, nil)
 }
 
-// DeleteFolderRecursive deletes folderID and everything under it. This is
-// irreversible; the MCP layer must gate it behind explicit user intent.
+// DeleteFolderRecursive deletes folderID and everything under it and removes
+// sharing. pCloud routes the delete to its Trash (time-limited, plan-dependent
+// recovery), but the MCP layer must still gate it behind explicit user intent.
 func (c *Client) DeleteFolderRecursive(ctx context.Context, folderID int64) error {
 	params := url.Values{}
 	params.Set("folderid", strconv.FormatInt(folderID, 10))
