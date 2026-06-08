@@ -17,7 +17,7 @@ remains is everything that makes sense remotely:
 - browse, search, organize (list / create folder / move / rename / delete)
 - **share a file** → get a link you open on the phone to download
 - **save text** → Claude writes a note/doc straight into pCloud
-- **create an upload link** → open it on the phone to upload photos/PDFs into a folder
+- **fetch from a URL** → have pCloud pull a remote file straight into a folder (bytes never pass through this server)
 
 To move a binary file between clouds you still go through links or a machine with
 the local tools; an MCP tool argument cannot carry file bytes.
@@ -137,7 +137,9 @@ Then ask Claude: *"list my pCloud root folder"* to confirm.
 A file you attach in a Claude.ai chat lives in Claude's code-execution sandbox,
 not in a tool argument. To push it to this server you must allowlist the server's
 URL under Claude.ai → Settings → Capabilities → *Additional allowed domains*, so
-the sandbox may `curl` it. Without that, use the **upload link** tool instead.
+the sandbox may `curl` it. Without that allowlisting, there is no in-chat upload
+path from the web UI: either run the local stdio tools (`upload_file`) on a
+machine with the file, or put the file at a public URL and use `upload_from_url`.
 
 ## Updating
 

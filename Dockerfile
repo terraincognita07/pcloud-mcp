@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # --- build stage ---
-# Floating 1.26 tag: always present and ≥1.26.3, carrying current stdlib fixes.
+# Floating 1.26 tag: always present; if its Go is older than go.mod's toolchain
+# pin (1.26.4) the build fetches the pinned release, so stdlib fixes are assured.
 FROM golang:1.26 AS build
 WORKDIR /src
 

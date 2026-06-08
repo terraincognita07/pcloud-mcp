@@ -9,7 +9,7 @@
 #      the container binds to loopback only, so it is never exposed directly.
 #      See docs/SELF-HOSTING.md.
 #
-# Pin OVUMCY-style: set PCLOUD_MCP_IMAGE to a chosen tag/digest in production
+# In production, pin by digest: set PCLOUD_MCP_IMAGE to a chosen tag/digest
 # instead of building locally.
 
 services:

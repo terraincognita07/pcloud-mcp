@@ -1,4 +1,5 @@
-# Codecov configuration. Public-repo uploads are tokenless via GitHub Actions.
+# Codecov configuration. Uploads use CODECOV_TOKEN (a repo secret) — tokenless
+# upload from GitHub Actions proved flaky; see .github/workflows/ci.yml.
 coverage:
   status:
     project:

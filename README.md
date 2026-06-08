@@ -214,8 +214,9 @@ go vet ./...
 ```
 
 The code is layered one-directionally — `cmd → mcpserver → {download, oauth, config, pcloud} →
-safepath` — with the security boundary isolated in `internal/safepath`. `safepath` and `pcloud` know
-nothing about the filesystem layout or MCP, so the trust boundary stays in one auditable place.
+safepath`, with `cmd → httpserver` wrapping the MCP handler at the network boundary for HTTP mode —
+and the security boundary isolated in `internal/safepath`. `safepath` and `pcloud` know nothing about
+the filesystem layout or MCP, so the trust boundary stays in one auditable place.
 
 ## License
 
