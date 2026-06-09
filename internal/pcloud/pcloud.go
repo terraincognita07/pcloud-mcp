@@ -120,12 +120,12 @@ type envelope struct {
 	Error  string `json:"error"`
 }
 
-// Metadata describes a file or folder as returned by the API. Numeric IDs are
-// decoded as int64; only the fields the server actually populates for a given
-// kind are non-zero (e.g. FileID/Size for files, FolderID/Contents for folders).
-// Hash is uint64: pCloud returns a full-range unsigned 64-bit file hash that
-// routinely exceeds math.MaxInt64, so decoding it into int64 fails the whole
-// response (see TestListFolder_LargeUnsignedHash).
+// Metadata describes a file or folder as returned by the API. The numeric IDs
+// (folder/file/parent) are int64; only the fields the server actually populates
+// for a given kind are non-zero (e.g. FileID/Size for files, FolderID/Contents
+// for folders). Hash is the deliberate exception — uint64: pCloud returns a
+// full-range unsigned 64-bit file hash that routinely exceeds math.MaxInt64, so
+// decoding it into int64 fails the whole response (see TestListFolder_LargeUnsignedHash).
 type Metadata struct {
 	Name           string `json:"name"`
 	Path           string `json:"path"`
@@ -611,6 +611,9 @@ func (c *Client) UploadFromURL(ctx context.Context, remoteURL string, folderID i
 		envelope
 		Metadata []Metadata `json:"metadata"`
 	}
+	// pCloud's remote-fetch-into-account endpoint is literally named "downloadfile"
+	// (it downloads remoteURL into *their* storage); despite the name it is not a
+	// download for us — this is the upload-from-URL path.
 	if err := c.call(ctx, "downloadfile", params, &out); err != nil {
 		return nil, err
 	}

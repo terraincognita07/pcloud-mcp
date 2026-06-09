@@ -73,6 +73,8 @@ Usage:
   pcloud-mcp auth                 One-time OAuth setup (needs PCLOUD_CLIENT_ID / PCLOUD_CLIENT_SECRET)
   pcloud-mcp serve                Run over stdio (local; for Claude Desktop on this machine)
   pcloud-mcp serve --http :8080   Run over authenticated HTTP (remote; needs PCLOUD_MCP_TOKEN)
+  pcloud-mcp version              Print version (also -v, --version)
+  pcloud-mcp help                 Show this help (also -h, --help)
 
 Credentials are stored with owner-only permissions under your user config dir.
 In HTTP mode, clients must send "Authorization: Bearer $PCLOUD_MCP_TOKEN", and
