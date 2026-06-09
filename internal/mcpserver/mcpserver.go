@@ -61,7 +61,7 @@ func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_get_thumbnail",
-		Description: "Fetch a small JPEG thumbnail of a pCloud image or video by file_id and return it inline so the model can see it. size is WIDTHxHEIGHT (default 256x256, max 1024x1024). Use this to visually scan or identify photos cheaply without pulling full-resolution files; it also works for formats the model can't read directly (e.g. BMP), since pCloud renders the preview as JPEG.",
+		Description: "Fetch a small JPEG thumbnail of a pCloud image or video by file_id and return it inline so the model can see it. size is WIDTHxHEIGHT (default 256x256, max 1024x1024). The fetched preview is capped at 8 MiB and, unlike pcloud_read_file, has no link fallback — an over-cap render returns an error (real thumbnails are far smaller). Use this to visually scan or identify photos cheaply without pulling full-resolution files; it also works for formats the model can't read directly (e.g. BMP), since pCloud renders the preview as JPEG.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: boolPtr(true)},
 	}, s.GetThumbnail)
 

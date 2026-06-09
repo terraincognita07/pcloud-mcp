@@ -213,8 +213,9 @@ go test ./...        # all tests, incl. a real in-memory MCP integration test
 go vet ./...
 ```
 
-The code is layered one-directionally — `cmd → mcpserver → {download, oauth, config, pcloud} →
-safepath`, with `cmd → httpserver` wrapping the MCP handler at the network boundary for HTTP mode —
+The code is layered one-directionally — `cmd → mcpserver → {download, pcloud, safepath}`, with
+`oauth`/`config` wired directly in `cmd` (not imported by `mcpserver`) and `cmd → httpserver`
+wrapping the MCP handler at the network boundary for HTTP mode —
 and the security boundary isolated in `internal/safepath`. `safepath` and `pcloud` know nothing about
 the filesystem layout or MCP, so the trust boundary stays in one auditable place.
 

@@ -33,8 +33,9 @@ Common targets (`make help` for the full list):
 The code is layered **one-directionally**:
 
 ```
-cmd → mcpserver → {download, oauth, config, pcloud} → safepath
-    ↘ httpserver (network boundary for HTTP mode)
+cmd → mcpserver → {download, pcloud, safepath}
+    ↘ oauth, config   (wired in cmd; not imported by mcpserver)
+    ↘ httpserver      (network boundary for HTTP mode)
 ```
 
 - `safepath` and `pcloud` must not import filesystem-layout or MCP concerns —
