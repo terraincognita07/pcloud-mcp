@@ -2,6 +2,7 @@ package download
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/terraincognita07/pcloud-mcp/internal/pcloud"
+	"github.com/terraincognita07/pcloud-mcp/internal/safepath"
 )
 
 // redirectTransport sends every request — pCloud API calls and CDN downloads
@@ -161,8 +163,8 @@ func TestFolder_BlocksTraversalEndToEnd(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected traversal to be refused, got nil error")
 	}
-	if !strings.Contains(err.Error(), "unsafe") {
-		t.Errorf("error should explain the unsafe name: %v", err)
+	if !errors.Is(err, safepath.ErrUnsafeName) {
+		t.Errorf("error should be ErrUnsafeName-typed: %v", err)
 	}
 	// Nothing must have escaped into the parent directory.
 	if _, statErr := os.Stat(filepath.Join(parent, ".bashrc")); !os.IsNotExist(statErr) {

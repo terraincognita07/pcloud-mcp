@@ -1,8 +1,8 @@
 package safepath
 
 import (
+	"errors"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -97,7 +97,7 @@ func TestJoin_DecodedSeparatorIsCaught(t *testing.T) {
 
 func TestSafeName_ErrorIsTyped(t *testing.T) {
 	_, err := SafeName("..")
-	if err == nil || !strings.Contains(err.Error(), "unsafe") {
+	if err == nil || !errors.Is(err, ErrUnsafeName) {
 		t.Errorf("expected ErrUnsafeName-wrapped error, got %v", err)
 	}
 }
