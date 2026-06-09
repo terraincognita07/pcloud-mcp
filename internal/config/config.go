@@ -37,6 +37,10 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "pcloud-mcp", "credentials.json"), nil
 }
 
+// osRename is indirected so a test can inject a failure at the commit step and
+// verify Save's atomicity guarantee (an existing file is never left truncated).
+var osRename = os.Rename
+
 // Save writes c to path atomically with owner-only permissions, creating the
 // parent directory if needed.
 func Save(path string, c *Credentials) error {
@@ -75,7 +79,7 @@ func Save(path string, c *Credentials) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temp file: %w", err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := osRename(tmpName, path); err != nil {
 		return fmt.Errorf("commit credentials: %w", err)
 	}
 	return nil

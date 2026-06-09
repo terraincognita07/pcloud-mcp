@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -80,5 +81,41 @@ func TestDefaultPath(t *testing.T) {
 	}
 	if !filepath.IsAbs(path) {
 		t.Errorf("DefaultPath = %q; want an absolute path", path)
+	}
+}
+
+// TestSave_RenameFailureKeepsOriginal pins atomicity: if the commit (rename)
+// step fails, an existing credentials file must be left intact — never truncated
+// or half-written. An in-place os.WriteFile would fail this.
+func TestSave_RenameFailureKeepsOriginal(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "credentials.json")
+
+	orig := &Credentials{AccessToken: "original-token", Region: 1, UID: 1}
+	if err := Save(path, orig); err != nil {
+		t.Fatalf("seed Save: %v", err)
+	}
+
+	saved := osRename
+	osRename = func(_, _ string) error { return errors.New("injected rename failure") }
+	defer func() { osRename = saved }()
+
+	if err := Save(path, &Credentials{AccessToken: "new-token", Region: 2, UID: 2}); err == nil {
+		t.Fatal("Save must surface the rename failure")
+	}
+
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("original credentials destroyed by failed Save: %v", err)
+	}
+	if *got != *orig {
+		t.Errorf("original mutated by failed Save: got %+v want %+v", *got, *orig)
+	}
+
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".credentials-") {
+			t.Errorf("leftover temp file after failed Save: %s", e.Name())
+		}
 	}
 }

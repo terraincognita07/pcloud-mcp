@@ -69,6 +69,18 @@ func bearerToken(header string) string {
 	return strings.TrimSpace(header[len(prefix):])
 }
 
+// newServer assembles the *http.Server with auth, the Slowloris guard
+// (ReadHeaderTimeout), and error logging wired in. It is split out from Serve so
+// that wiring is unit-testable without binding a socket. logger must be non-nil.
+func newServer(addr, token string, handler http.Handler, logger *slog.Logger) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           BearerAuth(token, handler),
+		ReadHeaderTimeout: ReadHeaderTimeout,
+		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
+	}
+}
+
 // Serve runs handler behind bearer auth on addr until ctx is cancelled. It
 // fails closed: an empty token is refused rather than served unauthenticated.
 func Serve(ctx context.Context, addr, token string, handler http.Handler, logger *slog.Logger) error {
@@ -82,12 +94,7 @@ func Serve(ctx context.Context, addr, token string, handler http.Handler, logger
 		logger = slog.New(slog.NewTextHandler(noopWriter{}, nil))
 	}
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           BearerAuth(token, handler),
-		ReadHeaderTimeout: ReadHeaderTimeout,
-		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
-	}
+	srv := newServer(addr, token, handler, logger)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

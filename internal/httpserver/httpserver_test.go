@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -41,6 +42,10 @@ func TestBearerAuth_AcceptsCaseInsensitiveScheme(t *testing.T) {
 	}
 }
 
+// Note: BearerAuth compares with subtle.ConstantTimeCompare. The constant-time
+// *timing* property is deliberately not unit-tested — a timing assertion is
+// inherently flaky and non-portable; we pin the behavioral contract (reject
+// wrong/prefix/missing, accept correct) instead.
 func TestBearerAuth_RejectsWrongMissingMalformed(t *testing.T) {
 	h := BearerAuth("s3cret", okHandler)
 	cases := map[string]string{
@@ -135,5 +140,19 @@ func TestBearerToken(t *testing.T) {
 		if got := bearerToken(in); got != want {
 			t.Errorf("bearerToken(%q) = %q; want %q", in, got, want)
 		}
+	}
+}
+
+// TestNewServer_WiresReadHeaderTimeout pins the Slowloris guard: the server must
+// be built with ReadHeaderTimeout set. Removing the field at the construction
+// site would pass every other test, so this asserts the wiring directly.
+func TestNewServer_WiresReadHeaderTimeout(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := newServer("127.0.0.1:0", validToken, okHandler, logger)
+	if srv.ReadHeaderTimeout != ReadHeaderTimeout {
+		t.Errorf("ReadHeaderTimeout = %v; want %v (Slowloris guard)", srv.ReadHeaderTimeout, ReadHeaderTimeout)
+	}
+	if srv.ReadHeaderTimeout == 0 {
+		t.Error("ReadHeaderTimeout is zero — the Slowloris hold-open vector is open")
 	}
 }
