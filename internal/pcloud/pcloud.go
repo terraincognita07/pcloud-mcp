@@ -127,21 +127,18 @@ type envelope struct {
 // full-range unsigned 64-bit file hash that routinely exceeds math.MaxInt64, so
 // decoding it into int64 fails the whole response (see TestListFolder_LargeUnsignedHash).
 type Metadata struct {
-	Name           string `json:"name"`
-	Path           string `json:"path"`
-	IsFolder       bool   `json:"isfolder"`
-	FolderID       int64  `json:"folderid"`
-	FileID         int64  `json:"fileid"`
-	ParentFolderID int64  `json:"parentfolderid"`
-	// OrigParentFolderID is only set by trash_list: where the item lived before
-	// it was moved to Trash.
-	OrigParentFolderID int64      `json:"origparentfolderid"`
-	Size               int64      `json:"size"`
-	ContentType        string     `json:"contenttype"`
-	Hash               uint64     `json:"hash"`
-	Created            string     `json:"created"`
-	Modified           string     `json:"modified"`
-	Contents           []Metadata `json:"contents"`
+	Name           string     `json:"name"`
+	Path           string     `json:"path"`
+	IsFolder       bool       `json:"isfolder"`
+	FolderID       int64      `json:"folderid"`
+	FileID         int64      `json:"fileid"`
+	ParentFolderID int64      `json:"parentfolderid"`
+	Size           int64      `json:"size"`
+	ContentType    string     `json:"contenttype"`
+	Hash           uint64     `json:"hash"`
+	Created        string     `json:"created"`
+	Modified       string     `json:"modified"`
+	Contents       []Metadata `json:"contents"`
 }
 
 // call performs a form-encoded POST to /method with the access token in the
@@ -318,13 +315,21 @@ func (c *Client) Download(ctx context.Context, fileURL string, w io.Writer) (int
 
 // UploadFile uploads content as filename into folderID. The request is
 // multipart/form-data with parameters before the file part, as pCloud requires.
+//
+// The file bytes are streamed, not buffered: only the multipart framing is
+// precomputed in memory and content is read on the fly, so uploading a large
+// file does not hold it in RAM. size is the content length in bytes and is used
+// to send an exact Content-Length; pass a negative size if it is unknown to
+// fall back to chunked transfer encoding.
+//
 // The supplied filename is sent verbatim as the form field; the caller is
-// responsible for it being a sane single name (the MCP layer validates it).
-func (c *Client) UploadFile(ctx context.Context, folderID int64, filename string, content io.Reader) (*Metadata, error) {
-	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
-
+// responsible for it being a sane single name (the MCP layer validates the
+// names it accepts from the model).
+func (c *Client) UploadFile(ctx context.Context, folderID int64, filename string, content io.Reader, size int64) (*Metadata, error) {
+	// Multipart prologue: the parameter fields and the file part's header.
 	// Parameters first, then the file part — pCloud parses in order.
+	var pre bytes.Buffer
+	mw := multipart.NewWriter(&pre)
 	for k, v := range map[string]string{
 		"access_token": c.token,
 		"folderid":     strconv.FormatInt(folderID, 10),
@@ -334,23 +339,24 @@ func (c *Client) UploadFile(ctx context.Context, folderID int64, filename string
 			return nil, fmt.Errorf("pcloud uploadfile: write field %s: %w", k, err)
 		}
 	}
-	part, err := mw.CreateFormFile("file", filename)
-	if err != nil {
+	if _, err := mw.CreateFormFile("file", filename); err != nil {
 		return nil, fmt.Errorf("pcloud uploadfile: create file part: %w", err)
 	}
-	if _, err := io.Copy(part, content); err != nil {
-		return nil, fmt.Errorf("pcloud uploadfile: copy content: %w", err)
-	}
-	if err := mw.Close(); err != nil {
-		return nil, fmt.Errorf("pcloud uploadfile: close writer: %w", err)
-	}
+	// pre now ends with the file part's header; content goes next on the wire,
+	// and the closing boundary (what multipart.Writer.Close would emit) after it.
+	post := "\r\n--" + mw.Boundary() + "--\r\n"
+	preLen := int64(pre.Len())
 
 	endpoint := c.scheme + "://" + c.host + "/uploadfile"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
+	body := io.MultiReader(&pre, content, strings.NewReader(post))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
 	if err != nil {
 		return nil, fmt.Errorf("pcloud uploadfile: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
+	if size >= 0 {
+		req.ContentLength = preLen + size + int64(len(post))
+	}
 
 	var out struct {
 		envelope
@@ -400,13 +406,14 @@ func (c *Client) DeleteFolderRecursive(ctx context.Context, folderID int64) erro
 	return c.call(ctx, "deletefolderrecursive", params, nil)
 }
 
-// RenameFile renames and/or moves fileID. Pass toFolderID = 0 to keep the file
-// in place and only change its name; pass a non-zero toFolderID to move it.
-func (c *Client) RenameFile(ctx context.Context, fileID, toFolderID int64, newName string) (*Metadata, error) {
+// RenameFile renames and/or moves fileID. toFolderID selects the destination
+// folder — 0 is a real destination (the account root) — so it is a pointer:
+// pass nil to keep the file in its current folder and only change its name.
+func (c *Client) RenameFile(ctx context.Context, fileID int64, toFolderID *int64, newName string) (*Metadata, error) {
 	params := url.Values{}
 	params.Set("fileid", strconv.FormatInt(fileID, 10))
-	if toFolderID != 0 {
-		params.Set("tofolderid", strconv.FormatInt(toFolderID, 10))
+	if toFolderID != nil {
+		params.Set("tofolderid", strconv.FormatInt(*toFolderID, 10))
 	}
 	if newName != "" {
 		params.Set("toname", newName)
@@ -421,12 +428,13 @@ func (c *Client) RenameFile(ctx context.Context, fileID, toFolderID int64, newNa
 	return &out.Metadata, nil
 }
 
-// RenameFolder renames and/or moves folderID, mirroring RenameFile.
-func (c *Client) RenameFolder(ctx context.Context, folderID, toFolderID int64, newName string) (*Metadata, error) {
+// RenameFolder renames and/or moves folderID, mirroring RenameFile (nil
+// toFolderID = keep in place; 0 = move to the account root).
+func (c *Client) RenameFolder(ctx context.Context, folderID int64, toFolderID *int64, newName string) (*Metadata, error) {
 	params := url.Values{}
 	params.Set("folderid", strconv.FormatInt(folderID, 10))
-	if toFolderID != 0 {
-		params.Set("tofolderid", strconv.FormatInt(toFolderID, 10))
+	if toFolderID != nil {
+		params.Set("tofolderid", strconv.FormatInt(*toFolderID, 10))
 	}
 	if newName != "" {
 		params.Set("toname", newName)

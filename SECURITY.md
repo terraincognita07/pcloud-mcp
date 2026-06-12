@@ -67,8 +67,12 @@ stdio does not. Controls:
   <PCLOUD_MCP_TOKEN>`; it is compared in constant time, missing/wrong returns
   `401`, and the server **refuses to start without a token** (fails closed). Use
   a long random secret (`openssl rand -hex 32`).
-- **Loopback bind + TLS proxy.** The container binds `127.0.0.1` only; HTTPS is
-  terminated by a reverse proxy. The port is never exposed to `0.0.0.0`.
+- **Loopback exposure + TLS proxy.** Inside the container the listener binds
+  `:8080`; what keeps it off the network is the compose file's port mapping
+  (`127.0.0.1:8080:8080`), so only the reverse proxy on the same host can reach
+  it, and HTTPS is terminated there. If you run the image without that compose
+  file, do not publish the port to all interfaces (`-p 8080:8080`) — keep the
+  mapping loopback-only yourself.
 - **Reduced tool set.** Local-filesystem tools (`download_*`, `upload_file`) are
   hidden in HTTP mode so a remote request cannot read or write the server's disk.
 - **`ReadHeaderTimeout`** is set, closing the Slowloris hold-open vector.

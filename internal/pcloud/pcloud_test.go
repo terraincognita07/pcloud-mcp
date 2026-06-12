@@ -238,6 +238,11 @@ func TestUploadFileMultipart(t *testing.T) {
 		if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
 			t.Errorf("not multipart: %q", r.Header.Get("Content-Type"))
 		}
+		// The streaming body must still announce an exact Content-Length (pCloud
+		// gets a sized request, not chunked transfer encoding).
+		if r.ContentLength <= 0 {
+			t.Errorf("ContentLength = %d; want an exact positive length", r.ContentLength)
+		}
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
 			t.Fatalf("parse multipart: %v", err)
 		}
@@ -261,7 +266,7 @@ func TestUploadFileMultipart(t *testing.T) {
 		}
 		io.WriteString(w, `{"result":0,"metadata":[{"name":"note.txt","fileid":99,"size":5}]}`)
 	})
-	md, err := c.UploadFile(context.Background(), 7, "note.txt", strings.NewReader("hello"))
+	md, err := c.UploadFile(context.Background(), 7, "note.txt", strings.NewReader("hello"), 5)
 	if err != nil {
 		t.Fatalf("UploadFile: %v", err)
 	}
@@ -269,6 +274,32 @@ func TestUploadFileMultipart(t *testing.T) {
 		t.Errorf("returned fileid = %d; want 99", md.FileID)
 	}
 }
+
+// TestUploadFileUnknownSize covers the size<0 fallback: the upload must still
+// parse as well-formed multipart on the server when the client cannot announce
+// a Content-Length up front.
+func TestUploadFileUnknownSize(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatalf("parse multipart: %v", err)
+		}
+		f, _, err := r.FormFile("file")
+		if err != nil {
+			t.Fatalf("FormFile: %v", err)
+		}
+		defer f.Close()
+		content, _ := io.ReadAll(f)
+		if string(content) != "stream" {
+			t.Errorf("content = %q", content)
+		}
+		io.WriteString(w, `{"result":0,"metadata":[{"name":"s.bin","fileid":100,"size":6}]}`)
+	})
+	if _, err := c.UploadFile(context.Background(), 1, "s.bin", strings.NewReader("stream"), -1); err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+}
+
+func int64Ptr(v int64) *int64 { return &v }
 
 func TestRenameFileSendsParams(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -284,7 +315,41 @@ func TestRenameFileSendsParams(t *testing.T) {
 		}
 		io.WriteString(w, `{"result":0,"metadata":{"name":"renamed.txt","fileid":5}}`)
 	})
-	if _, err := c.RenameFile(context.Background(), 5, 8, "renamed.txt"); err != nil {
+	if _, err := c.RenameFile(context.Background(), 5, int64Ptr(8), "renamed.txt"); err != nil {
+		t.Fatalf("RenameFile: %v", err)
+	}
+}
+
+// TestRenameFileToRootSendsZero pins the "move to account root" case: folder id
+// 0 is a real pCloud destination, so an explicit 0 must reach the wire as
+// tofolderid=0 (the old int sentinel silently dropped it).
+func TestRenameFileToRootSendsZero(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if got, ok := r.PostForm["tofolderid"]; !ok || got[0] != "0" {
+			t.Errorf("tofolderid = %v (present=%v); want explicit \"0\"", got, ok)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"a.txt","fileid":5,"parentfolderid":0}}`)
+	})
+	if _, err := c.RenameFile(context.Background(), 5, int64Ptr(0), ""); err != nil {
+		t.Fatalf("RenameFile: %v", err)
+	}
+}
+
+// TestRenameFileNilKeepsInPlace pins the rename-only case: a nil toFolderID
+// must not send tofolderid at all.
+func TestRenameFileNilKeepsInPlace(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if _, ok := r.PostForm["tofolderid"]; ok {
+			t.Errorf("tofolderid sent for a rename-in-place: %v", r.PostForm["tofolderid"])
+		}
+		if r.PostForm.Get("toname") != "new.txt" {
+			t.Errorf("toname = %q", r.PostForm.Get("toname"))
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"new.txt","fileid":5}}`)
+	})
+	if _, err := c.RenameFile(context.Background(), 5, nil, "new.txt"); err != nil {
 		t.Fatalf("RenameFile: %v", err)
 	}
 }

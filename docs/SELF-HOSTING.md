@@ -30,8 +30,10 @@ the internet. Two controls stand between the world and your account:
 1. **Bearer token** — every request must send `Authorization: Bearer <PCLOUD_MCP_TOKEN>`.
    Missing/wrong → `401`. The server refuses to start without a token. Use a long
    random secret: `openssl rand -hex 32`.
-2. **HTTPS via a reverse proxy** — the container binds to `127.0.0.1` only; the
-   proxy terminates TLS and forwards locally. Never expose the port to `0.0.0.0`.
+2. **HTTPS via a reverse proxy** — the compose file maps the container's port to
+   host loopback (`127.0.0.1:8080:8080`), so only the proxy on the same host can
+   reach it; the proxy terminates TLS and forwards locally. Never publish the
+   port to `0.0.0.0` (e.g. a bare `-p 8080:8080`).
 
 Treat `PCLOUD_MCP_TOKEN` and `credentials.json` as secrets. Rotate the token by
 changing the env var and restarting; revoke pCloud access entirely from your

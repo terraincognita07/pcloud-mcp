@@ -97,15 +97,26 @@ func (s *Server) UploadFile(ctx context.Context, _ *mcp.CallToolRequest, in Uplo
 	}
 	name := in.Name
 	if name == "" {
+		// The default name is the user's own local file name — trusted input,
+		// not re-validated (a legitimate local name may use characters safepath
+		// rejects).
 		name = filepath.Base(in.LocalPath)
+	} else if _, err := safepath.SafeName(name); err != nil {
+		// An explicit name comes from the model; hold it to the same single-
+		// component rule as save_text.
+		return nil, UploadResult{}, err
 	}
 	f, err := os.Open(in.LocalPath)
 	if err != nil {
 		return nil, UploadResult{}, fmt.Errorf("open local file: %w", err)
 	}
 	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, UploadResult{}, fmt.Errorf("stat local file: %w", err)
+	}
 
-	md, err := s.client.UploadFile(ctx, in.FolderID, name, f)
+	md, err := s.client.UploadFile(ctx, in.FolderID, name, f, fi.Size())
 	if err != nil {
 		return nil, UploadResult{}, err
 	}

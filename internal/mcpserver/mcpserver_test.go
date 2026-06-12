@@ -419,6 +419,24 @@ func TestUploadFile_MissingLocalFile(t *testing.T) {
 	}
 }
 
+// TestUploadFile_RejectsUnsafeExplicitName holds the model-supplied name
+// override to the same safepath rule as save_text (the default name — the local
+// file's own base name — is trusted user input and stays un-checked).
+func TestUploadFile_RejectsUnsafeExplicitName(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("should not call API for an unsafe explicit name")
+	})
+	local := filepath.Join(t.TempDir(), "ok.txt")
+	if err := os.WriteFile(local, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"../evil", "a/b.txt", "con"} {
+		if _, _, err := s.UploadFile(context.Background(), nil, UploadFileInput{LocalPath: local, Name: bad}); err == nil {
+			t.Errorf("explicit name %q must be rejected", bad)
+		}
+	}
+}
+
 func TestDeleteFolder(t *testing.T) {
 	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/deletefolderrecursive") {
@@ -441,6 +459,23 @@ func TestMoveFile_RequiresAnArgument(t *testing.T) {
 	})
 	if _, _, err := s.MoveFile(context.Background(), nil, MoveFileInput{FileID: 1}); err == nil {
 		t.Error("expected error when neither new_name nor to_folder_id is set")
+	}
+}
+
+func int64Ptr(v int64) *int64 { return &v }
+
+// TestMoveFile_ToRoot pins that to_folder_id=0 means "move to the account
+// root" — a real destination — not "keep in place" (the old zero-sentinel bug).
+func TestMoveFile_ToRoot(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if got, ok := r.PostForm["tofolderid"]; !ok || got[0] != "0" {
+			t.Errorf("tofolderid = %v (present=%v); want explicit \"0\"", got, ok)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"a.txt","fileid":1,"parentfolderid":0}}`)
+	})
+	if _, _, err := s.MoveFile(context.Background(), nil, MoveFileInput{FileID: 1, ToFolderID: int64Ptr(0)}); err != nil {
+		t.Fatalf("MoveFile to root: %v", err)
 	}
 }
 

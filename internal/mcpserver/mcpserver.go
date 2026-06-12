@@ -129,13 +129,13 @@ func (s *Server) RegisterMode(m *mcp.Server, mode Mode) {
 
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_move_file",
-		Description: "Rename and/or move a pCloud file. Set new_name to rename, to_folder_id to move; either or both may be provided.",
+		Description: "Rename and/or move a pCloud file. Set new_name to rename, to_folder_id to move (0 = account root); either or both may be provided. Omit to_folder_id to keep the file in its current folder.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
 	}, s.MoveFile)
 
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "pcloud_move_folder",
-		Description: "Rename and/or move a pCloud folder. Set new_name to rename, to_folder_id to move; either or both may be provided.",
+		Description: "Rename and/or move a pCloud folder. Set new_name to rename, to_folder_id to move (0 = account root); either or both may be provided. Omit to_folder_id to keep the folder where it is.",
 		Annotations: &mcp.ToolAnnotations{DestructiveHint: boolPtr(false), OpenWorldHint: boolPtr(true)},
 	}, s.MoveFolder)
 

@@ -3,6 +3,35 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Atomic downloads.** `pcloud_download_file` / `pcloud_download_folder` now stream into an
+  exclusive temp file and rename it over the target only after the transfer completes. Previously
+  the target was opened with `O_TRUNC` and removed on failure, so a network drop while re-downloading
+  over an existing local file destroyed the previous copy. A failed transfer now leaves the old file
+  untouched and cleans up only its own temp file.
+- **Move to root.** `pcloud_move_file` / `pcloud_move_folder` can now move into the account root:
+  `to_folder_id` is optional-by-omission (omit = keep in place), so an explicit `0` reaches the API
+  as a real destination instead of being silently dropped by the zero-value sentinel. This matches
+  the `copy_*` tools' "0 = root" semantics.
+
+### Changed
+- **Streaming uploads.** `pcloud_upload_file` no longer buffers the whole file in memory before
+  sending: the multipart body is streamed with an exact `Content-Length`, so uploading a large file
+  costs O(1) RAM instead of O(file size).
+- `pcloud_upload_file` now validates a model-supplied `name` override with the same single-component
+  rule as `pcloud_save_text` (the default — the local file's own base name — is unchanged).
+- HTTP bearer auth compares SHA-256 digests of the presented and expected tokens, removing the
+  token-length timing signal `subtle.ConstantTimeCompare` alone leaves (it returns early on a
+  length mismatch). No behavior change for clients.
+- Docs: SECURITY.md and SELF-HOSTING.md now describe the loopback boundary precisely — the
+  in-container listener binds `:8080`; the loopback confinement comes from the compose port mapping
+  (`127.0.0.1:8080:8080`), not from the container itself.
+
+### Removed
+- Dead `Metadata.OrigParentFolderID` field (it documented `trash_list`, removed in 0.4.0).
+
 ## [0.4.0] — 2026-06-05
 
 ### Removed

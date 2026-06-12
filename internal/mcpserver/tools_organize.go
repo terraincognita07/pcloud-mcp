@@ -66,16 +66,18 @@ func (s *Server) DeleteFolder(ctx context.Context, _ *mcp.CallToolRequest, in De
 
 // --- move_file / move_folder ---
 
-// MoveFileInput renames and/or moves a file.
+// MoveFileInput renames and/or moves a file. ToFolderID is a pointer because 0
+// is a real destination (the account root) — only an omitted field means "keep
+// the file in its current folder".
 type MoveFileInput struct {
 	FileID     int64  `json:"file_id" jsonschema:"pCloud file id to rename and/or move"`
-	ToFolderID int64  `json:"to_folder_id,omitempty" jsonschema:"destination folder id; omit or 0 to keep in place"`
+	ToFolderID *int64 `json:"to_folder_id,omitempty" jsonschema:"destination folder id; use 0 for the account root; omit to keep the file in its current folder"`
 	NewName    string `json:"new_name,omitempty" jsonschema:"new name; omit to keep the current name"`
 }
 
 // MoveFile renames and/or moves a file.
 func (s *Server) MoveFile(ctx context.Context, _ *mcp.CallToolRequest, in MoveFileInput) (*mcp.CallToolResult, Entry, error) {
-	if in.ToFolderID == 0 && in.NewName == "" {
+	if in.ToFolderID == nil && in.NewName == "" {
 		return nil, Entry{}, fmt.Errorf("provide new_name, to_folder_id, or both")
 	}
 	md, err := s.client.RenameFile(ctx, in.FileID, in.ToFolderID, in.NewName)
@@ -85,16 +87,17 @@ func (s *Server) MoveFile(ctx context.Context, _ *mcp.CallToolRequest, in MoveFi
 	return nil, Entry{Name: md.Name, ID: md.FileID, IsFolder: false, Size: md.Size, ContentType: md.ContentType}, nil
 }
 
-// MoveFolderInput renames and/or moves a folder.
+// MoveFolderInput renames and/or moves a folder. ToFolderID is a pointer for
+// the same reason as MoveFileInput's: 0 is the account root, not "unset".
 type MoveFolderInput struct {
 	FolderID   int64  `json:"folder_id" jsonschema:"pCloud folder id to rename and/or move"`
-	ToFolderID int64  `json:"to_folder_id,omitempty" jsonschema:"destination parent folder id; omit or 0 to keep in place"`
+	ToFolderID *int64 `json:"to_folder_id,omitempty" jsonschema:"destination parent folder id; use 0 for the account root; omit to keep the folder where it is"`
 	NewName    string `json:"new_name,omitempty" jsonschema:"new name; omit to keep the current name"`
 }
 
 // MoveFolder renames and/or moves a folder.
 func (s *Server) MoveFolder(ctx context.Context, _ *mcp.CallToolRequest, in MoveFolderInput) (*mcp.CallToolResult, Entry, error) {
-	if in.ToFolderID == 0 && in.NewName == "" {
+	if in.ToFolderID == nil && in.NewName == "" {
 		return nil, Entry{}, fmt.Errorf("provide new_name, to_folder_id, or both")
 	}
 	md, err := s.client.RenameFolder(ctx, in.FolderID, in.ToFolderID, in.NewName)
@@ -154,7 +157,7 @@ func (s *Server) SaveText(ctx context.Context, _ *mcp.CallToolRequest, in SaveTe
 	if _, err := safepath.SafeName(in.Name); err != nil {
 		return nil, UploadResult{}, err
 	}
-	md, err := s.client.UploadFile(ctx, in.FolderID, in.Name, strings.NewReader(in.Content))
+	md, err := s.client.UploadFile(ctx, in.FolderID, in.Name, strings.NewReader(in.Content), int64(len(in.Content)))
 	if err != nil {
 		return nil, UploadResult{}, err
 	}

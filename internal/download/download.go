@@ -21,6 +21,8 @@ package download
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -131,28 +133,68 @@ func (d *Downloader) walk(ctx context.Context, root *os.Root, node *pcloud.Metad
 	return nil
 }
 
-// downloadFile resolves a direct link for meta and streams it to root/rel. The
-// file is created through the root, so rel cannot escape base. A partial file is
-// removed if the transfer fails, so a failed download never leaves truncated
-// data behind.
+// downloadFile resolves a direct link for meta and streams it to root/rel. All
+// I/O goes through the root, so neither rel nor the temp file can escape base.
+//
+// The write is atomic: bytes land in an exclusive temp file beside the target,
+// which is renamed over rel only after the transfer completes. A failed
+// transfer therefore removes only its own temp file — it can never truncate or
+// delete a file that already existed at rel (re-downloading over an old copy is
+// safe even when the network drops mid-stream).
 func (d *Downloader) downloadFile(ctx context.Context, root *os.Root, meta *pcloud.Metadata, rel string) (int64, error) {
 	link, err := d.client.GetFileLink(ctx, meta.FileID, true)
 	if err != nil {
 		return 0, err
 	}
-	f, err := root.OpenFile(rel, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	tmp, f, err := createTemp(root, rel)
 	if err != nil {
-		return 0, fmt.Errorf("open %s: %w", rel, err)
+		return 0, err
 	}
 	n, err := d.client.Download(ctx, link, f)
 	closeErr := f.Close()
 	if err != nil {
-		_ = root.Remove(rel) // drop the partial file
+		_ = root.Remove(tmp) // drop the partial temp; rel itself is untouched
 		return 0, err
 	}
 	if closeErr != nil {
-		_ = root.Remove(rel)
-		return 0, fmt.Errorf("close %s: %w", rel, closeErr)
+		_ = root.Remove(tmp)
+		return 0, fmt.Errorf("close %s: %w", tmp, closeErr)
+	}
+	if err := root.Rename(tmp, rel); err != nil {
+		_ = root.Remove(tmp)
+		return 0, fmt.Errorf("commit %s: %w", rel, err)
 	}
 	return n, nil
+}
+
+// createTemp opens an exclusive (O_EXCL) temp file next to rel — same
+// directory, so the final rename cannot cross a filesystem boundary and stays
+// atomic. The suffix is random so the temp name cannot collide with a real
+// remote name in the same listing; O_EXCL turns any remaining collision into a
+// retry instead of an overwrite.
+func createTemp(root *os.Root, rel string) (string, *os.File, error) {
+	for range 4 {
+		suffix, err := randomSuffix()
+		if err != nil {
+			return "", nil, err
+		}
+		name := rel + ".partial-" + suffix
+		f, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
+		if err == nil {
+			return name, f, nil
+		}
+		if !os.IsExist(err) {
+			return "", nil, fmt.Errorf("open temp for %s: %w", rel, err)
+		}
+	}
+	return "", nil, fmt.Errorf("open temp for %s: name collisions persist", rel)
+}
+
+// randomSuffix returns 8 hex chars of crypto-grade randomness for temp names.
+func randomSuffix() (string, error) {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("temp name randomness: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
 }

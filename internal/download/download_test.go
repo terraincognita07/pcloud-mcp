@@ -71,21 +71,7 @@ func benignServer(t *testing.T) *httptest.Server {
 // more bytes via Content-Length than it actually sends, then closes — the client
 // sees an unexpected EOF mid-copy, and the partial file must be removed.
 func TestFile_PartialDownloadCleanedUp(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/getfilelink"):
-			io.WriteString(w, `{"result":0,"hosts":["cdn.example"],"path":"/dl/x"}`)
-		case strings.HasPrefix(r.URL.Path, "/dl/"):
-			// Claim 100 bytes, send 3, then hijack-close so io.Copy fails.
-			w.Header().Set("Content-Length", "100")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("aaa"))
-			if hj, ok := w.(http.Hijacker); ok {
-				conn, _, _ := hj.Hijack()
-				_ = conn.Close()
-			}
-		}
-	}))
+	srv := failingCDN(t)
 	defer srv.Close()
 
 	base := t.TempDir()
@@ -95,9 +81,90 @@ func TestFile_PartialDownloadCleanedUp(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error from a truncated download")
 	}
-	// The partial file must NOT exist.
+	// Neither the target nor any temp file may be left behind.
 	if _, statErr := os.Stat(filepath.Join(base, "broken.bin")); !os.IsNotExist(statErr) {
 		t.Errorf("partial file was left behind (stat err: %v); it must be removed", statErr)
+	}
+	if entries, _ := os.ReadDir(base); len(entries) != 0 {
+		t.Errorf("leftover files after failed download: %v", entries)
+	}
+}
+
+// failingCDN answers getfilelink, then serves a body that dies mid-transfer
+// (Content-Length promises more bytes than are sent before the hijack-close).
+func failingCDN(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getfilelink"):
+			io.WriteString(w, `{"result":0,"hosts":["cdn.example"],"path":"/dl/x"}`)
+		case strings.HasPrefix(r.URL.Path, "/dl/"):
+			w.Header().Set("Content-Length", "100")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("aaa"))
+			if hj, ok := w.(http.Hijacker); ok {
+				conn, _, _ := hj.Hijack()
+				_ = conn.Close()
+			}
+		}
+	}))
+}
+
+// TestFile_FailedOverwriteKeepsExisting is the regression test for the atomic
+// overwrite guarantee: re-downloading over an existing local file must not
+// destroy it when the transfer fails mid-stream. (The old implementation opened
+// the target with O_TRUNC and removed it on failure — a network drop while
+// refreshing a file deleted the previous copy.)
+func TestFile_FailedOverwriteKeepsExisting(t *testing.T) {
+	srv := failingCDN(t)
+	defer srv.Close()
+
+	base := t.TempDir()
+	const original = "precious original content"
+	target := filepath.Join(base, "report.pdf")
+	if err := os.WriteFile(target, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	d := New(testClient(t, srv), base)
+	if _, err := d.File(context.Background(), &pcloud.Metadata{Name: "report.pdf", FileID: 1, Size: 100}); err == nil {
+		t.Fatal("expected an error from a truncated download")
+	}
+
+	if got := readFile(t, target); got != original {
+		t.Errorf("pre-existing file was destroyed by a failed download: %q", got)
+	}
+	if entries, _ := os.ReadDir(base); len(entries) != 1 {
+		t.Errorf("temp files left beside the original: %v", entries)
+	}
+}
+
+// TestFile_OverwriteReplacesAtomically covers the success half of the same
+// guarantee: a completed download replaces the old content via rename, leaving
+// no temp files behind.
+func TestFile_OverwriteReplacesAtomically(t *testing.T) {
+	srv := benignServer(t)
+	defer srv.Close()
+
+	base := t.TempDir()
+	target := filepath.Join(base, "a.txt")
+	if err := os.WriteFile(target, []byte("stale old version"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	d := New(testClient(t, srv), base)
+	stats, err := d.File(context.Background(), &pcloud.Metadata{Name: "a.txt", FileID: 10, Size: 3})
+	if err != nil {
+		t.Fatalf("File: %v", err)
+	}
+	if stats.Bytes != 3 {
+		t.Errorf("stats = %+v; want 3 bytes", stats)
+	}
+	if got := readFile(t, target); got != "aaa" {
+		t.Errorf("content = %q; want %q", got, "aaa")
+	}
+	if entries, _ := os.ReadDir(base); len(entries) != 1 {
+		t.Errorf("temp files left after successful overwrite: %v", entries)
 	}
 }
 

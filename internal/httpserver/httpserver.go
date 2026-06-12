@@ -19,6 +19,7 @@ package httpserver
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -46,11 +47,15 @@ const MinTokenLength = 16
 // constant time. token must be non-empty (callers should validate before use;
 // Serve does).
 func BearerAuth(token string, next http.Handler) http.Handler {
-	want := []byte(token)
+	want := sha256.Sum256([]byte(token))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got := bearerToken(r.Header.Get("Authorization"))
-		// Compare lengths via subtle to avoid leaking length, then content.
-		if got == "" || subtle.ConstantTimeCompare([]byte(got), want) != 1 {
+		// Hash both sides to fixed-length digests before the constant-time
+		// compare: ConstantTimeCompare alone returns early on a length mismatch,
+		// so comparing raw tokens would leak the token's length through timing.
+		// Comparing the SHA-256 digests leaks neither content nor length.
+		gotSum := sha256.Sum256([]byte(got))
+		if got == "" || subtle.ConstantTimeCompare(gotSum[:], want[:]) != 1 {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="pcloud-mcp"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
