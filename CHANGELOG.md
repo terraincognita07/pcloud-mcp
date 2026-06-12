@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] — 2026-06-12
 
 ### Fixed
 - **Atomic downloads.** `pcloud_download_file` / `pcloud_download_folder` now stream into an
