@@ -49,6 +49,10 @@ can reason about them:
   `share_folder` link to sensitive data is a quiet, persistent exfiltration. Injection (above) plus an
   ungated outward call is a real chain. These tools advertise `OpenWorldHint` and say "confirm intent"
   in their descriptions — **keep host confirmation enabled for sharing, not only for delete.**
+  Note also that `pcloud_upload_from_url` is a server-side fetch: the URL is retrieved by **pCloud's**
+  infrastructure (the bytes never pass through this server or your machine), so a prompt-injected
+  model could direct pCloud to fetch an arbitrary URL into your account. The same host-confirmation
+  advice applies.
 - **The host approves tool calls.** Destructive and outward-facing tools are annotated, but enforcing
   "ask the user before deleting or sharing" lives in the MCP host (e.g. Claude's permission prompt),
   not here.
@@ -86,7 +90,7 @@ the tools.
 
 ## Auditing it yourself
 
-The minimum gate, also enforced in CI (alongside `staticcheck` and `gosec`):
+The minimum gate, also enforced in CI (alongside `golangci-lint` and `gosec`):
 
 ```
 go test ./... && go vet ./... && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
