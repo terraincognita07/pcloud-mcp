@@ -33,8 +33,8 @@ vet: ## Run go vet
 	go vet $(PKG)
 
 .PHONY: lint
-lint: ## Run staticcheck
-	go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 $(PKG)
+lint: ## Run golangci-lint (includes staticcheck)
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run $(PKG)
 
 .PHONY: sec
 sec: ## Run govulncheck + gosec

@@ -1,0 +1,20 @@
+# golangci-lint v2 configuration.
+# The linter version itself is pinned in the CI workflow and the Makefile.
+version: "2"
+
+linters:
+  # standard = errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  exclusions:
+    rules:
+      # Deferred cleanup (Close on read paths, temp-file Remove) is
+      # best-effort by design; every write path that must observe the Close
+      # error already checks it explicitly (download.go closes before rename).
+      - linters:
+          - errcheck
+        source: '^\s*defer '
+      # httptest handlers and fixtures write best-effort; failing writes fail
+      # the assertion anyway.
+      - path: _test\.go
+        linters:
+          - errcheck
