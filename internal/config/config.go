@@ -39,6 +39,7 @@ func DefaultPath() (string, error) {
 
 // osRename is indirected so a test can inject a failure at the commit step and
 // verify Save's atomicity guarantee (an existing file is never left truncated).
+// Mutable package state: tests that swap it must not use t.Parallel().
 var osRename = os.Rename
 
 // Save writes c to path atomically with owner-only permissions, creating the

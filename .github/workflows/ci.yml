@@ -14,8 +14,8 @@ jobs:
     name: build · vet · test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: '1.26.4'
       - name: gofmt
@@ -29,7 +29,7 @@ jobs:
       - name: test (race + coverage)
         run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         continue-on-error: true   # a Codecov outage must never red the build
         with:
           files: ./coverage.out
@@ -41,8 +41,8 @@ jobs:
     name: govulncheck · staticcheck · gosec
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: '1.26.4'
       # Pinned tool versions for deterministic runs; bump deliberately.
@@ -57,5 +57,5 @@ jobs:
     name: docker build (non-root)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - run: docker build -t pcloud-mcp:ci .

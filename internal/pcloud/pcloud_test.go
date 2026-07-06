@@ -3,6 +3,7 @@ package pcloud
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -73,8 +74,8 @@ func TestAPIErrorMapped(t *testing.T) {
 	if apiErr.Result != 2094 {
 		t.Errorf("Result = %d; want 2094", apiErr.Result)
 	}
-	if !strings.Contains(apiErr.Error(), "listfolder") {
-		t.Errorf("error should name the method: %v", apiErr)
+	if apiErr.Method != "listfolder" {
+		t.Errorf("Method = %q; want %q", apiErr.Method, "listfolder")
 	}
 }
 
@@ -351,6 +352,125 @@ func TestRenameFileNilKeepsInPlace(t *testing.T) {
 	})
 	if _, err := c.RenameFile(context.Background(), 5, nil, "new.txt"); err != nil {
 		t.Fatalf("RenameFile: %v", err)
+	}
+}
+
+func TestCreateFolderSendsParams(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if r.PostForm.Get("folderid") != "3" {
+			t.Errorf("folderid = %q", r.PostForm.Get("folderid"))
+		}
+		if r.PostForm.Get("name") != "newdir" {
+			t.Errorf("name = %q", r.PostForm.Get("name"))
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"newdir","folderid":42,"isfolder":true}}`)
+	})
+	md, err := c.CreateFolder(context.Background(), 3, "newdir")
+	if err != nil {
+		t.Fatalf("CreateFolder: %v", err)
+	}
+	if md.Name != "newdir" {
+		t.Errorf("Name = %q; want %q", md.Name, "newdir")
+	}
+}
+
+// TestCreateFolderAPIError pins the API-error path: pCloud answers with HTTP 200
+// and a non-zero result, which must surface as a typed *APIError, not a generic
+// error.
+func TestCreateFolderAPIError(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"result":2004,"error":"Please provide 'name'."}`)
+	})
+	_, err := c.CreateFolder(context.Background(), 3, "")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T: %v", err, err)
+	}
+	if apiErr.Result != 2004 {
+		t.Errorf("Result = %d; want 2004", apiErr.Result)
+	}
+	if apiErr.Method != "createfolder" {
+		t.Errorf("Method = %q; want %q", apiErr.Method, "createfolder")
+	}
+}
+
+func TestDeleteFileSendsParams(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if r.PostForm.Get("fileid") != "9" {
+			t.Errorf("fileid = %q", r.PostForm.Get("fileid"))
+		}
+		io.WriteString(w, `{"result":0}`)
+	})
+	if err := c.DeleteFile(context.Background(), 9); err != nil {
+		t.Fatalf("DeleteFile: %v", err)
+	}
+}
+
+func TestDeleteFolderRecursiveSendsParams(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if r.PostForm.Get("folderid") != "12" {
+			t.Errorf("folderid = %q", r.PostForm.Get("folderid"))
+		}
+		io.WriteString(w, `{"result":0}`)
+	})
+	if err := c.DeleteFolderRecursive(context.Background(), 12); err != nil {
+		t.Fatalf("DeleteFolderRecursive: %v", err)
+	}
+}
+
+func TestRenameFolderSendsParams(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if r.PostForm.Get("folderid") != "5" {
+			t.Errorf("folderid = %q", r.PostForm.Get("folderid"))
+		}
+		if r.PostForm.Get("tofolderid") != "8" {
+			t.Errorf("tofolderid = %q", r.PostForm.Get("tofolderid"))
+		}
+		if r.PostForm.Get("toname") != "renamed" {
+			t.Errorf("toname = %q", r.PostForm.Get("toname"))
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"renamed","folderid":5,"isfolder":true}}`)
+	})
+	if _, err := c.RenameFolder(context.Background(), 5, int64Ptr(8), "renamed"); err != nil {
+		t.Fatalf("RenameFolder: %v", err)
+	}
+}
+
+// TestRenameFolderToRootSendsZero mirrors TestRenameFileToRootSendsZero: folder
+// id 0 is a real pCloud destination (the account root), so an explicit 0 must
+// reach the wire as tofolderid=0, not be dropped by an int sentinel.
+func TestRenameFolderToRootSendsZero(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if got, ok := r.PostForm["tofolderid"]; !ok || got[0] != "0" {
+			t.Errorf("tofolderid = %v (present=%v); want explicit \"0\"", got, ok)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"sub","folderid":5,"parentfolderid":0,"isfolder":true}}`)
+	})
+	if _, err := c.RenameFolder(context.Background(), 5, int64Ptr(0), ""); err != nil {
+		t.Fatalf("RenameFolder: %v", err)
+	}
+}
+
+// TestRenameFolderNilKeepsInPlace mirrors TestRenameFileNilKeepsInPlace: a nil
+// toFolderID must not send tofolderid at all.
+func TestRenameFolderNilKeepsInPlace(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		if _, ok := r.PostForm["tofolderid"]; ok {
+			t.Errorf("tofolderid sent for a rename-in-place: %v", r.PostForm["tofolderid"])
+		}
+		if r.PostForm.Get("toname") != "newname" {
+			t.Errorf("toname = %q", r.PostForm.Get("toname"))
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"newname","folderid":5,"isfolder":true}}`)
+	})
+	if _, err := c.RenameFolder(context.Background(), 5, nil, "newname"); err != nil {
+		t.Fatalf("RenameFolder: %v", err)
 	}
 }
 
