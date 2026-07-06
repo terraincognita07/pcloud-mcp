@@ -4,10 +4,15 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/terraincognita07/pcloud-mcp/internal/config"
+	"github.com/terraincognita07/pcloud-mcp/internal/pcloud"
 )
 
 func TestListenAddrIsLoopback(t *testing.T) {
@@ -214,6 +219,119 @@ func TestRun_ListenFailure(t *testing.T) {
 	_, err = Run(context.Background(), Config{ClientID: "id", ClientSecret: "secret", Port: port})
 	if err == nil {
 		t.Fatal("expected an error when the callback port is already in use")
+	}
+}
+
+// freeLoopbackPort picks a currently free loopback port and releases it for
+// Run to bind. The tiny reuse race is acceptable in a test.
+func freeLoopbackPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to pick a loopback port: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := ln.Close(); err != nil {
+		t.Fatalf("failed to release the port: %v", err)
+	}
+	return port
+}
+
+// TestRun_SuccessPath drives the whole flow end to end over the real loopback
+// listener: Run binds the callback server, the test plays the provider by
+// requesting the redirect URI with the genuine state, and a stubbed
+// exchangeCode returns the token. Asserts the credentials Run assembles and
+// that the EU callback maps to the EU API host.
+func TestRun_SuccessPath(t *testing.T) {
+	port := freeLoopbackPort(t)
+
+	authURLCh := make(chan string, 1)
+	oldBrowser := openBrowser
+	openBrowser = func(u string) error {
+		authURLCh <- u
+		return nil
+	}
+	t.Cleanup(func() { openBrowser = oldBrowser })
+
+	oldExchange := exchangeCode
+	exchangeCode = func(_ context.Context, _ *http.Client, host, clientID, clientSecret, code string) (*pcloud.OAuthToken, error) {
+		if host != "eapi.pcloud.com" {
+			t.Errorf("exchange host = %q; want eapi.pcloud.com", host)
+		}
+		if clientID != "id" || clientSecret != "secret" {
+			t.Errorf("exchange credentials = %q/%q", clientID, clientSecret)
+		}
+		if code != "c0de" {
+			t.Errorf("exchange code = %q; want c0de", code)
+		}
+		return &pcloud.OAuthToken{AccessToken: "tok-123", UID: 42}, nil
+	}
+	t.Cleanup(func() { exchangeCode = oldExchange })
+
+	type runResult struct {
+		creds *config.Credentials
+		err   error
+	}
+	done := make(chan runResult, 1)
+	go func() {
+		creds, err := Run(context.Background(), Config{
+			ClientID: "id", ClientSecret: "secret", Port: port, Timeout: 10 * time.Second,
+		})
+		done <- runResult{creds, err}
+	}()
+
+	// openBrowser fires only after the listener is bound, so receiving the
+	// auth URL means the callback endpoint is ready.
+	authURL := <-authURLCh
+	u, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("parse auth URL: %v", err)
+	}
+	state := u.Query().Get("state")
+	redirect := u.Query().Get("redirect_uri")
+
+	// Play the provider: deliver the real callback.
+	cb := redirect + "?" + url.Values{
+		"state": {state}, "code": {"c0de"}, "locationid": {"2"}, "hostname": {"eapi.pcloud.com"},
+	}.Encode()
+	resp, err := http.Get(cb)
+	if err != nil {
+		t.Fatalf("callback request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("callback status = %d; want 200", resp.StatusCode)
+	}
+
+	res := <-done
+	if res.err != nil {
+		t.Fatalf("Run: %v", res.err)
+	}
+	if res.creds.AccessToken != "tok-123" {
+		t.Errorf("AccessToken = %q; want tok-123", res.creds.AccessToken)
+	}
+	if res.creds.Region != 2 {
+		t.Errorf("Region = %d; want 2", res.creds.Region)
+	}
+	if res.creds.UID != 42 {
+		t.Errorf("UID = %d; want 42", res.creds.UID)
+	}
+}
+
+// TestRun_Timeout proves the timeout branch returns errTimedOut when no
+// callback ever arrives.
+func TestRun_Timeout(t *testing.T) {
+	port := freeLoopbackPort(t)
+
+	old := openBrowser
+	openBrowser = func(string) error { return nil }
+	t.Cleanup(func() { openBrowser = old })
+
+	_, err := Run(context.Background(), Config{
+		ClientID: "id", ClientSecret: "secret", Port: port, Timeout: 50 * time.Millisecond,
+	})
+	if !errors.Is(err, errTimedOut) {
+		t.Errorf("err = %v; want errTimedOut", err)
 	}
 }
 

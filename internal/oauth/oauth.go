@@ -63,6 +63,14 @@ func launch(name string, args ...string) error {
 	return exec.Command(name, args...).Start()
 }
 
+// errTimedOut is returned when the user does not complete authorization within
+// the configured timeout.
+var errTimedOut = errors.New("oauth: timed out waiting for authorization")
+
+// exchangeCode is a variable so tests can stub the token exchange and cover
+// Run's success path without a live pCloud endpoint.
+var exchangeCode = pcloud.ExchangeOAuthCode
+
 // openBrowser is a variable so tests can stub it; opening a browser is always
 // best-effort, since the URL is also printed for the user to open manually.
 var openBrowser = func(u string) error {
@@ -122,13 +130,13 @@ func Run(ctx context.Context, cfg Config) (*config.Credentials, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-time.After(timeout):
-		return nil, errors.New("oauth: timed out waiting for authorization")
+		return nil, errTimedOut
 	case res := <-resultCh:
 		if res.err != nil {
 			return nil, res.err
 		}
 		host := apiHostForLocation(res.locationID, res.hostname)
-		tok, err := pcloud.ExchangeOAuthCode(ctx, nil, host, cfg.ClientID, cfg.ClientSecret, res.code)
+		tok, err := exchangeCode(ctx, nil, host, cfg.ClientID, cfg.ClientSecret, res.code)
 		if err != nil {
 			return nil, err
 		}
