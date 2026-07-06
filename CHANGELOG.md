@@ -3,6 +3,34 @@
 All notable changes to this project are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses [SemVer](https://semver.org/).
 
+## [0.5.1] — 2026-07-07
+
+Quality release: no runtime behavior change. Everything in this release hardens the
+project's own safety net — tests, lint gate, CI supply chain, and security docs.
+
+### Added
+- Test coverage for the previously untested destructive/organize surface: the
+  `createfolder` / `deletefile` / `deletefolderrecursive` / `renamefolder` client methods
+  (exact wire params, move-to-root pointer semantics, API-error mapping) and the
+  `create_folder` / `delete_file` / `move_folder` MCP handlers, including
+  `TestMoveFolder_ToRoot` as the twin of the existing `TestMoveFile_ToRoot` regression test.
+- `oauth.Run` is now covered end to end: the success path is driven over the real loopback
+  listener with the genuine `state` (the constant-time check is exercised, not bypassed),
+  plus cancelled-context, timeout, and port-in-use paths. Package coverage 47% → 87%.
+- `golangci-lint` (standard set) as the enforced lint gate in CI and `make lint`,
+  replacing the standalone `staticcheck` step (which it includes).
+
+### Changed
+- CI actions are pinned to full-length commit SHAs, as required by the repository's
+  actions policy (floating tags made every job fail at setup).
+- SECURITY.md documents that `pcloud_upload_from_url` is a server-side fetch performed by
+  pCloud's infrastructure — the SSRF-shaped surface a prompt-injected model could drive;
+  the existing host-confirmation guidance applies.
+
+### Removed
+- The Go Report Card badge (the service stopped rendering for this repo); its role is
+  superseded by the enforced golangci-lint gate.
+
 ## [0.5.0] — 2026-06-12
 
 ### Fixed
