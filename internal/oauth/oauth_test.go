@@ -1,6 +1,9 @@
 package oauth
 
 import (
+	"context"
+	"errors"
+	"net"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -168,6 +171,49 @@ func TestCallbackHandler_BadLocationIDDoesNotCrash(t *testing.T) {
 	}
 	if res.code != "c" {
 		t.Errorf("code = %q", res.code)
+	}
+}
+
+// TestRun_CancelledContext proves Run returns promptly and wraps ctx.Err()
+// when the caller's context is already cancelled. openBrowser is stubbed so
+// the test never opens a real browser window.
+func TestRun_CancelledContext(t *testing.T) {
+	old := openBrowser
+	openBrowser = func(string) error { return nil }
+	t.Cleanup(func() { openBrowser = old })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := Run(ctx, Config{ClientID: "id", ClientSecret: "secret", Port: 0})
+	if err == nil {
+		t.Fatal("expected an error for a cancelled context")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v; want wrapped context.Canceled", err)
+	}
+}
+
+// TestRun_ListenFailure proves Run returns promptly with a wrapped error when
+// the loopback callback port is already in use.
+func TestRun_ListenFailure(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to occupy a loopback port: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	old := openBrowser
+	openBrowser = func(string) error {
+		t.Error("must not attempt to open a browser when listen fails")
+		return nil
+	}
+	t.Cleanup(func() { openBrowser = old })
+
+	_, err = Run(context.Background(), Config{ClientID: "id", ClientSecret: "secret", Port: port})
+	if err == nil {
+		t.Fatal("expected an error when the callback port is already in use")
 	}
 }
 

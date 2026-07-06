@@ -260,6 +260,49 @@ func TestCopyFolder(t *testing.T) {
 	}
 }
 
+func TestCreateFolder(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/createfolder") {
+			t.Errorf("endpoint = %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"New","folderid":77,"isfolder":true}}`)
+	})
+	_, out, err := s.CreateFolder(context.Background(), nil, CreateFolderInput{ParentID: 0, Name: "New"})
+	if err != nil {
+		t.Fatalf("CreateFolder: %v", err)
+	}
+	if out.FolderID != 77 || out.Name != "New" {
+		t.Errorf("create folder result = %+v", out)
+	}
+}
+
+// TestCreateFolder_RequiresName is the empty-name guard rejection path: the
+// handler must refuse before calling the API.
+func TestCreateFolder_RequiresName(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("must not call API when name is empty")
+	})
+	if _, _, err := s.CreateFolder(context.Background(), nil, CreateFolderInput{ParentID: 0, Name: ""}); err == nil {
+		t.Error("expected error when name is empty")
+	}
+}
+
+func TestDeleteFile(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/deletefile") {
+			t.Errorf("wrong endpoint: %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0}`)
+	})
+	_, out, err := s.DeleteFile(context.Background(), nil, DeleteFileInput{FileID: 5})
+	if err != nil {
+		t.Fatalf("DeleteFile: %v", err)
+	}
+	if !out.Deleted {
+		t.Error("expected Deleted=true")
+	}
+}
+
 func TestDeleteLink(t *testing.T) {
 	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/deletepublink") {
@@ -476,6 +519,47 @@ func TestMoveFile_ToRoot(t *testing.T) {
 	})
 	if _, _, err := s.MoveFile(context.Background(), nil, MoveFileInput{FileID: 1, ToFolderID: int64Ptr(0)}); err != nil {
 		t.Fatalf("MoveFile to root: %v", err)
+	}
+}
+
+func TestMoveFolder_RequiresAnArgument(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("should not call API with no rename/move target")
+	})
+	if _, _, err := s.MoveFolder(context.Background(), nil, MoveFolderInput{FolderID: 1}); err == nil {
+		t.Error("expected error when neither new_name nor to_folder_id is set")
+	}
+}
+
+func TestMoveFolder(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/renamefolder") {
+			t.Errorf("wrong endpoint: %s", r.URL.Path)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"D2","folderid":3,"isfolder":true}}`)
+	})
+	_, out, err := s.MoveFolder(context.Background(), nil, MoveFolderInput{FolderID: 3, NewName: "D2"})
+	if err != nil {
+		t.Fatalf("MoveFolder: %v", err)
+	}
+	if out.ID != 3 || !out.IsFolder || out.Name != "D2" {
+		t.Errorf("move folder entry = %+v", out)
+	}
+}
+
+// TestMoveFolder_ToRoot is MoveFile_ToRoot's twin: to_folder_id=0 means "move
+// to the account root" — a real destination — not "keep in place" (the old
+// zero-sentinel bug), and the same pointer semantics apply to folders.
+func TestMoveFolder_ToRoot(t *testing.T) {
+	s, _ := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if got, ok := r.PostForm["tofolderid"]; !ok || got[0] != "0" {
+			t.Errorf("tofolderid = %v (present=%v); want explicit \"0\"", got, ok)
+		}
+		io.WriteString(w, `{"result":0,"metadata":{"name":"D","folderid":1,"parentfolderid":0,"isfolder":true}}`)
+	})
+	if _, _, err := s.MoveFolder(context.Background(), nil, MoveFolderInput{FolderID: 1, ToFolderID: int64Ptr(0)}); err != nil {
+		t.Fatalf("MoveFolder to root: %v", err)
 	}
 }
 
